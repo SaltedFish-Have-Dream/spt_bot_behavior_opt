@@ -31,7 +31,13 @@ internal static class Program
             DecisionSafetyAndRecovery(); // 检查恢复锁和丢失线索的退出。
             DecisionDoesNotReroll(); // 检查同一情境不能每 tick 重抽概率。
             StableRandom(); // 检查随机隔离和概率范围。
-            Console.WriteLine($"PASS: 17 scenarios, {_assertions} assertions."); // 输出实际验证数量。
+            LifecycleReleaseOnce(); // 检查长时间停用和原生层射击资源的幂等释放。
+            DecisionUnderExhaustedBudget(); // 检查持续超预算时轮转仍有进展。
+            InvestigationBoundariesAndExit(); // 检查超距、到期、恢复与重新接敌。
+            UnknownBrainFirstEvidence(); // 检查首次兼容信息不依赖普通事件额度且容量有界。
+            WorkTimingNestedAndLate(); // 检查嵌套独占归属和 LateUpdate 之后的回调。
+            WorkTimingDeepNesting(); // 检查极端重入不会抛错或重复累计。
+            Console.WriteLine($"PASS: 23 scenarios, {_assertions} assertions."); // 输出实际验证数量。
             return 0;
         }
         catch (Exception exception) // 明确报告失败而不是继续生成包。
@@ -263,6 +269,153 @@ internal static class Program
             float value = first.Next01();
             Check(value == second.Next01() && value >= 0 && value < 1, "stable bounded random");
         }
+    }
+
+    /// <summary>模拟约五万次停用更新，清理只能发生一次，重新排队后恢复清理责任。</summary>
+    private static void LifecycleReleaseOnce()
+    {
+        var lifecycle = new BotLifecycle(); // 与客户端共享真实生命周期门控。
+        var queue = new WorkQueue(); // 检查资源清理对旧任务的实际影响。
+        lifecycle.OwnResources(); // 模拟首次取得控制。
+        queue.Enqueue(Request(1, lifecycle.Generation, 100), 0, 1); // 保存释放前的动作代次。
+        Check(lifecycle.SetActive(false), "first inactive edge"); // 只允许一次停用边沿。
+        int releases = 0; // 用清理执行次数验证热循环没有扫描队列。
+        for (int index = 0; index < 50000; index++) // 复现日志中约五万次重复停用更新。
+        {
+            Check(!lifecycle.SetActive(false), "paused state has no repeated edge"); // 相同状态不触发停用逻辑。
+            if (lifecycle.TryRelease()) { queue.Cancel(1); releases++; } // 即使外部重复调用 Release，也只有首次清理。
+        }
+        Check(releases == 1 && lifecycle.Generation == 1 && queue.Count == 0, "one cleanup and one invalidation");
+        Check(lifecycle.SetActive(true) && !lifecycle.SetActive(true), "one reactivation edge");
+        lifecycle.OwnResources(); // 模拟没有自有动作控制权的原生射击入口排队。
+        Check(queue.Enqueue(Request(1, lifecycle.Generation, 100), 0, 1), "native action can queue a fresh shot");
+        Check(lifecycle.TryRelease(), "native layer shot still owns cleanup responsibility");
+        queue.Cancel(1); // 模拟 Dispose 与层 Stop 共用清理入口。
+        Check(!lifecycle.TryRelease() && lifecycle.Generation == 2 && queue.Count == 0, "repeat stop and dispose are idempotent");
+    }
+
+    /// <summary>软预算始终耗尽时每帧最多服务一名到期 Bot，热点项不能饿死其他候选。</summary>
+    private static void DecisionUnderExhaustedBudget()
+    {
+        var scheduler = new DecisionScheduler(); // 使用客户端实际调度器。
+        var visits = new int[31]; // 其中前三项模拟长期停用。
+        for (int frame = 0; frame < 56; frame++) // 两轮应覆盖全部二十八名活动 Bot。
+        {
+            scheduler.BeginFrame(visits.Length); // 每帧扫描上限由当前受管量决定。
+            int served = 0; // 验证一次保障机会不会变成无限超预算执行。
+            int scanned = 0; // 包含跳过停用项的实际扫描量。
+            while (scheduler.TryNext(visits.Length, false, out int index)) // 持续模拟安全检查已占满预算。
+            {
+                scanned++; // 每次选取只检查一个候选。
+                if (index < 3) continue; // 停用项不能消耗关键保障机会。
+                visits[index]++; // 包括热点项在内都保持到期，检验公平性。
+                scheduler.Served(); // 真实执行后才消耗保障机会。
+                served++; // 记录本帧实际执行量。
+            }
+            Check(served == 1 && scanned <= visits.Length, "one guaranteed decision with bounded scan");
+        }
+        for (int index = 3; index < visits.Length; index++) Check(visits[index] == 2, "each active bot served fairly"); // 不允许只更新列表头部。
+        scheduler.BeginFrame(31); // 模拟全体均未到期的空转扫描。
+        int candidates = 0; // 不调用 Served 时也必须在固定扫描上限结束。
+        while (scheduler.TryNext(31, false, out _)) candidates++; // 没有到期项不能形成无限循环。
+        Check(candidates == 31, "not-due scan is bounded");
+        var removal = new DecisionScheduler(); // 单独检验执行期间的异常注销。
+        removal.BeginFrame(3);
+        Check(removal.TryNext(3, false, out int first) && first == 0, "first candidate selected");
+        removal.Served();
+        removal.RemovedAt(0); // 删除刚服务的 Bot，原第二项左移至下标零。
+        removal.BeginFrame(2);
+        Check(removal.TryNext(2, false, out int next) && next == 0, "removal does not skip next bot");
+        removal.BeginFrame(0);
+        Check(!removal.TryNext(0, true, out _), "empty raid has no decision");
+    }
+
+    /// <summary>范围边界与记忆失效均有明确退出；已开始的恢复不被调查结束取消。</summary>
+    private static void InvestigationBoundariesAndExit()
+    {
+        Check(InvestigationPolicy.InRange(BotRole.Scav, Vector3.Zero, new Vector3(25, 0, 0)), "scav boundary allowed");
+        Check(!InvestigationPolicy.InRange(BotRole.Scav, Vector3.Zero, new Vector3(25.01f, 0, 0)), "scav out of range rejected");
+        Check(InvestigationPolicy.InRange(BotRole.Pmc, Vector3.Zero, new Vector3(60, 0, 0)), "pmc boundary allowed");
+        Check(!InvestigationPolicy.InRange(BotRole.Pmc, Vector3.Zero, new Vector3(60.01f, 0, 0)), "pmc out of range rejected");
+        Check(InvestigationPolicy.InRange(BotRole.Marksman, Vector3.Zero, new Vector3(200, 0, 0)), "stationary marksman may observe remote sound");
+        Check(!InvestigationPolicy.InRange(BotRole.Marksman, Vector3.Zero, new Vector3(float.NaN, 0, 0)), "invalid snapshot rejected");
+        var memory = new ThreatMemory(); // 使用真实记忆到期逻辑，不把单元测试误称为游戏集成测试。
+        memory.Observe(new Observation("sound", ObservationSource.Hearing, Vector3.One, 0, 0.1, 3), 0);
+        var policy = new DecisionPolicy();
+        SkillProfile skill = SkillProfile.Create(BotRole.Pmc, 20);
+        var input = new DecisionInput { HasClue = true, SoundOnly = true };
+        Check(policy.Decide(input, skill, 0, 0) == BehaviorState.Investigate, "valid sound starts investigation");
+        Check(!memory.TryGetLatest(0.1, out _), "sound expires during minimum hold");
+        policy.Reset(); // 快速退出不再等待共享调度器调用 Decide。
+        Check(policy.State == BehaviorState.Native, "expiry immediately releases cached investigation state");
+        input.Visible = true;
+        input.SoundOnly = false;
+        input.Reacted = true;
+        Check(policy.Decide(input, skill, 0.11, 0) == BehaviorState.Engage, "fresh enemy is not held by old investigation");
+        policy.Reset(BehaviorState.Recover); // 已开始恢复的调查退出保留恢复状态。
+        input.HasClue = false;
+        input.RecoveryRunning = true;
+        Check(policy.Decide(input, skill, 0.12, 0) == BehaviorState.Recover, "investigation exit preserves recovery");
+    }
+
+    /// <summary>普通日志额度耗尽后仍保留未知脑型首次证据，重复名称与溢出均有界。</summary>
+    private static void UnknownBrainFirstEvidence()
+    {
+        var events = new WorkBudget(8, 8); // 复现批量注册耗尽普通事件额度。
+        Check(events.TryTake(0, 0, 8) && !events.TryTake(0, 0), "ordinary event budget exhausted");
+        var cache = new FirstSeenCache(); // 首次兼容记录不共享上述令牌。
+        Check(cache.ShouldReport(51, "unknown", out bool overflow) && !overflow, "first unknown brain survives exhaustion");
+        Check(!cache.ShouldReport(51, "unknown", out _), "same role and brain only logged once");
+        Check(cache.ShouldReport(52, "unknown", out _), "different role retains evidence");
+        for (int index = 0; index < 30; index++) Check(cache.ShouldReport(index, "other", out overflow) && !overflow, "fill bounded registry"); // 总容量为三十二种组合。
+        Check(cache.ShouldReport(99, "overflow", out overflow) && overflow, "overflow emits one explicit warning");
+        Check(!cache.ShouldReport(100, "overflow2", out _) && !cache.ShouldReport(51, "unknown", out _), "overflow and duplicate cannot flood");
+        Check(new FirstSeenCache().ShouldReport(51, "unknown", out _), "next raid retains first evidence again");
+    }
+
+    /// <summary>用确定性时间线验证嵌套日志不双计、回调间空隙不计、晚回调不丢失。</summary>
+    private static void WorkTimingNestedAndLate()
+    {
+        var profiler = new WorkProfiler();
+        profiler.AdvanceFrame(10, 1, 32);
+        profiler.Begin(WorkPhase.Safety, 100); // 安全检查内嵌两刻度日志。
+        profiler.Begin(WorkPhase.Logging, 110);
+        profiler.End(110, 112);
+        profiler.End(100, 130);
+        profiler.Begin(WorkPhase.Action, 200); // 模拟 LateUpdate 后才执行的动作，中间七十刻度游戏工作不计。
+        profiler.End(200, 205);
+        profiler.AdvanceFrame(11, 2, 32); // 只有进入下一帧时才结算上一帧。
+        Check(profiler.Frames == 1 && profiler.TotalFrameTicks == 35 && profiler.OverBudgetFrames == 1, "late action included without callback gap");
+        Check(profiler.TotalTicks[(int)WorkPhase.Safety] == 28 && profiler.TotalTicks[(int)WorkPhase.Logging] == 2, "nested exclusive attribution");
+        Check(profiler.PeakCallTicks[(int)WorkPhase.Safety] == 30 && profiler.PeakFramePhases[(int)WorkPhase.Action] == 5, "call peak includes child but frame phases do not overlap");
+        profiler.Begin(WorkPhase.Action, 1100);
+        profiler.Begin(WorkPhase.Shooting, 1105);
+        profiler.End(1105, 1115);
+        profiler.End(1100, 1120);
+        profiler.CompleteFrame(32);
+        profiler.CompleteFrame(32); // 战局重复结束不能再次计入最后一帧。
+        Check(profiler.Frames == 2 && profiler.TotalFrameTicks == 55 && profiler.PeakFrameTicks == 35, "nested shoot and final flush counted once");
+        Check(profiler.PeakFrame == 10 && profiler.PeakTime == 1, "peak keeps matching frame and time");
+        long phaseSum = 0;
+        foreach (long ticks in profiler.TotalTicks) phaseSum += ticks; // 累计独占阶段之和必须等于插件区间总量。
+        Check(phaseSum == 55, "exclusive phase totals reconcile");
+        profiler.AdvanceFrame(12, 3, 32);
+        profiler.Begin(WorkPhase.Query, 2000);
+        profiler.End(2000, 2050);
+        profiler.CompleteFrame(32);
+        Check(profiler.PeakFramePhases[(int)WorkPhase.Query] == 50 && profiler.PeakFramePhases[(int)WorkPhase.Safety] == 0, "new peak replaces entire phase snapshot");
+    }
+
+    /// <summary>极深同步重入并入父阶段，固定栈溢出不改变游戏执行和总耗时。</summary>
+    private static void WorkTimingDeepNesting()
+    {
+        var profiler = new WorkProfiler();
+        profiler.AdvanceFrame(1, 0, 200);
+        for (int index = 0; index < 64; index++) profiler.Begin(WorkPhase.Action, index); // 超过固定栈容量时不扩容。
+        for (int index = 63; index >= 0; index--) profiler.End(index, 128 - index); // 按真实同步调用顺序退出。
+        profiler.CompleteFrame(200);
+        Check(profiler.StackOverflows == 32 && profiler.TotalFrameTicks == 128, "deep nesting remains bounded and singly counted");
+        Check(profiler.Calls[(int)WorkPhase.Action] == 32 && profiler.PeakCallTicks[(int)WorkPhase.Action] == 128, "overflow merges into parent timing");
     }
 
     /// <summary>构造不依赖 Unity 的队列样本。</summary>

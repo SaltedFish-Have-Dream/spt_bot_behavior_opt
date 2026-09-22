@@ -16,6 +16,7 @@ internal sealed class BotQuery
     private int _count;
     private int _candidate;
     private Vector3 _point;
+    private string _lastFailure = "no-candidates";
 
     /// <summary>每个 Bot 复用固定工作区，禁止因地图密度无限扩容。</summary>
     internal BotQuery(BotAgent agent)
@@ -29,6 +30,7 @@ internal sealed class BotQuery
         _stage = request.Kind == QueryKind.Cover ? 0 : 1;
         _count = request.Kind == QueryKind.Cover ? 0 : 1;
         _candidate = 0;
+        _lastFailure = "no-candidates";
         _candidates[0] = GameAdapter.Position(request.Position);
     }
 
@@ -48,7 +50,7 @@ internal sealed class BotQuery
         if (_stage == 1) // 导航投影避免把目标设在墙内或悬空位置。
         {
             if (!runtime.Samples.TryTake(now, frame)) return false; // 位置采样也计入全局预算。
-            if (!NavMesh.SamplePosition(_candidates[_candidate], out NavMeshHit navHit, 1.5f, NavMesh.AllAreas)) return NextCandidate(now, request); // 失败后只尝试下一个有限候选。
+            if (!NavMesh.SamplePosition(_candidates[_candidate], out NavMeshHit navHit, 1.5f, NavMesh.AllAreas)) return NextCandidate(now, request, "nav-sample"); // 失败后只尝试下一个有限候选。
             _point = navHit.position; // 保存有效导航坐标。
             _stage = request.Kind == QueryKind.Cover ? 2 : 3; // 普通移动不增加掩体射线。
             return false;
@@ -59,20 +61,20 @@ internal sealed class BotQuery
             Vector3 threat = GameAdapter.Position(request.Threat) + Vector3.up * 1.4f; // 只读取请求中固化的观察位置。
             runtime.RayCalls++; // 单独记录实际物理 API 调用。
             bool blocked = Physics.Linecast(_point + Vector3.up, threat, LayersMaskController.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore); // 对固定姿态高度验证遮挡。
-            if (!blocked) return NextCandidate(now, request); // 没有遮挡的位置不能称为掩体。
+            if (!blocked) return NextCandidate(now, request, "no-occlusion"); // 没有遮挡的位置不能称为掩体。
             _stage = 3; // 路径检查放在后续帧执行。
             return false;
         }
         if (!runtime.Paths.TryTake(now, frame)) return false; // 每帧最多开始一次完整路径计算。
         _path.ClearCorners(); // 重用路径对象，不沿用上次结果。
         if (!NavMesh.CalculatePath(_agent.Owner.Position, _point, NavMesh.AllAreas, _path) || _path.status != NavMeshPathStatus.PathComplete)
-            return NextCandidate(now, request); // 部分路径也按失败处理。
+            return NextCandidate(now, request, "path-incomplete"); // 部分路径也按失败处理。
         Vector3[] corners = _path.corners; // 仅成功路径创建角点副本，原生移动器会持有它。
-        if (corners.Length < 2 || corners.Length > 128) return NextCandidate(now, request); // 拒绝退化或异常复杂的路线。
+        if (corners.Length < 2 || corners.Length > 128) return NextCandidate(now, request, "path-corners"); // 拒绝退化或异常复杂的路线。
         float length = 0; // 限制近处目标绕行过远的情况。
         for (int index = 1; index < corners.Length; index++) length += Vector3.Distance(corners[index - 1], corners[index]); // 只遍历这条有界路径。
         float limit = request.Kind == QueryKind.Cover ? 40 : _agent.Role == BotRole.Scav ? 35 : 80; // 各类移动有明确距离上限。
-        if (length > limit || (corners[corners.Length - 1] - _point).sqrMagnitude > 2.25f) return NextCandidate(now, request); // 不能把远离目标的投影当成成功。
+        if (length > limit || (corners[corners.Length - 1] - _point).sqrMagnitude > 2.25f) return NextCandidate(now, request, "path-bounds"); // 不能把远离目标的投影当成成功。
         _agent.QuerySucceeded(request, _point, corners, now); // 写入前再次由 Agent 核对动作代次。
         return true;
     }
@@ -122,8 +124,9 @@ internal sealed class BotQuery
     }
 
     /// <summary>一个候选失败后转向下一个，耗尽候选时结束请求。</summary>
-    private bool NextCandidate(double now, in WorkRequest request)
+    private bool NextCandidate(double now, in WorkRequest request, string reason)
     {
+        _lastFailure = reason; // 保留最后一个候选实际失败原因，使用固定字符串避免高频分配。
         _candidate++; // 每次失败只前进，禁止回到同一候选无限重试。
         _stage = 1; // 下一个候选从独立导航采样开始。
         return _candidate >= Math.Min(_count, request.Kind == QueryKind.Cover ? 2 : 1) && Fail(now); // 无候选时释放 Agent 等待锁。
@@ -132,7 +135,7 @@ internal sealed class BotQuery
     /// <summary>统一处理无掩体、不可达或路径不完整的回退。</summary>
     private bool Fail(double now)
     {
-        _agent.QueryFailed(now);
+        _agent.QueryFailed(now, _lastFailure);
         return true;
     }
 }

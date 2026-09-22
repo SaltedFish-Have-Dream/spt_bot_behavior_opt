@@ -27,6 +27,15 @@ public sealed class DecisionPolicy
     private double _holdUntil;
     public BehaviorState State { get; private set; }
 
+    /// <summary>停用或调查结束时同步清空动作承诺，避免旧搜索状态阻止原生接手。</summary>
+    public void Reset(BehaviorState state = BehaviorState.Native)
+    {
+        State = state;
+        _holdUntil = 0;
+        _lastContext = int.MinValue;
+        _preferTactical = false;
+    }
+
     /// <summary>只在新情境重抽倾向，恢复锁、线索失效和视线改变可以及时覆盖旧动作。</summary>
     public BehaviorState Decide(in DecisionInput input, in SkillProfile profile, double now, float random)
     {
