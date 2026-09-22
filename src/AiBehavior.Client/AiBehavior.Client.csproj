@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>AiBehavior.Client</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AiBehavior.Core\AiBehavior.Core.csproj" />
+    <Reference Include="Assembly-CSharp" HintPath="$(GameRoot)\EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(GameRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.PhysicsModule" HintPath="$(GameRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.PhysicsModule.dll" Private="false" />
+    <Reference Include="UnityEngine.AIModule" HintPath="$(GameRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.AIModule.dll" Private="false" />
+    <Reference Include="BepInEx" HintPath="$(GameRoot)\BepInEx\core\BepInEx.dll" Private="false" />
+    <Reference Include="0Harmony" HintPath="$(GameRoot)\BepInEx\core\0Harmony.dll" Private="false" />
+    <Reference Include="DrakiaXYZ-BigBrain" HintPath="$(GameRoot)\BepInEx\plugins\DrakiaXYZ-BigBrain.dll" Private="false" />
+  </ItemGroup>
+</Project>
