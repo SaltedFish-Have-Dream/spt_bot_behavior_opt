@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-09-22T18:26:16.2328826+08:00",
+  "purpose": "Reference sources for a bot behavior optimization mod",
+  "spt_baseline": "4.1.5",
+  "repositories": [
+    {
+      "name": "SAIN",
+      "path": "SAIN",
+      "origin": "https://github.com/ArchangelWTF/SAIN.git",
+      "tag": "v4.5.1",
+      "branch": "reference/4.5.1",
+      "commit": "2d1d9257dbb3af535e9189e6181311f6355aec27",
+      "commit_date": "2026-09-04T20:32:55+02:00",
+      "upstream_archived": true,
+      "installed_dll": "E:\\Games\\Escape From Tarkof\\EFT v4.1\\BepInEx\\plugins\\SAIN\\SAIN.dll",
+      "installed_product_version": "4.5.1+2d1d9257dbb3af535e9189e6181311f6355aec27",
+      "installed_build_commit_match": true,
+      "shallow": true,
+      "tracked_files": 519,
+      "csharp_files": 467,
+      "lfs_objects": 0,
+      "submodules": 0,
+      "license": "MIT",
+      "integrity_check": "git fsck --full --no-reflogs: passed",
+      "working_tree_clean": true
+    },
+    {
+      "name": "BigBrain",
+      "path": "BigBrain",
+      "origin": "https://github.com/DrakiaXYZ/SPT-BigBrain.git",
+      "tag": "1.5.0",
+      "branch": "reference/1.5.0",
+      "commit": "4d26e8b0441d845933941eb0509cbe4e04ed2788",
+      "commit_date": "2026-08-01T18:16:00-07:00",
+      "upstream_archived": false,
+      "installed_dll": "E:\\Games\\Escape From Tarkof\\EFT v4.1\\BepInEx\\plugins\\DrakiaXYZ-BigBrain.dll",
+      "installed_product_version": "1.5.0+4d26e8b0441d845933941eb0509cbe4e04ed2788",
+      "installed_build_commit_match": true,
+      "shallow": true,
+      "tracked_files": 27,
+      "csharp_files": 20,
+      "lfs_objects": 0,
+      "submodules": 0,
+      "license": "MIT",
+      "integrity_check": "git fsck --full --no-reflogs: passed",
+      "working_tree_clean": true
+    }
+  ]
+}

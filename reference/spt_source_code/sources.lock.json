@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-09-22T18:17:05.0664776+08:00",
+  "source_organization": "https://github.com/SP-Tushonka",
+  "purpose": "SPT mod development source references",
+  "installed_environment": {
+    "path": "E:\\Games\\Escape From Tarkof\\EFT v4.1",
+    "spt_version": "4.1.5",
+    "eft_product_version": "0.16.9.5-40743-f137e819",
+    "server_commit": "7d7add556a6f781e9a531fa3b0cf4cc925986e03",
+    "modules_commit": "d52d9c99836b6d7dc5ad93852cd8032158df0f9c"
+  },
+  "repositories": [
+    {
+      "name": "server-csharp",
+      "path": "server-csharp",
+      "origin": "https://github.com/SP-Tushonka/server-csharp.git",
+      "branch": "reference/spt-4.1.5",
+      "commit": "7d7add556a6f781e9a531fa3b0cf4cc925986e03",
+      "commit_date": "2026-09-05T11:33:09+02:00",
+      "shallow": true,
+      "installed_build_commit_match": true,
+      "lfs_objects": [
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/bigmap/looseLoot.json",
+          "sha256": "d4c1f3f5470c87c9e9ff6b7d7efc0ed75c00638b99f8884a5b24ad3fc0eee8a6",
+          "size_bytes": 42297933,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/factory4_day/looseLoot.json",
+          "sha256": "489ed6c32d6e53dfa667ab74d4679f459436681187cd28b7284ffaaf78e8567b",
+          "size_bytes": 9292309,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/factory4_night/looseLoot.json",
+          "sha256": "c7784b42239560a11dd819a947a9988d8f042e335bc8861fcece36018e12ce3a",
+          "size_bytes": 9997931,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/interchange/looseLoot.json",
+          "sha256": "c896cc9dec233491df041f5d1f1cb571b9b80fce1f1ecd194354d063725df980",
+          "size_bytes": 65763894,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/laboratory/looseLoot.json",
+          "sha256": "983ee6b6d429de98f3585e8d91fb31a7d4973995aa59f016e6d39f7700621ac2",
+          "size_bytes": 21738221,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/labyrinth/looseLoot.json",
+          "sha256": "45ff812206411f294832e3d531d141344d286e2d32397b2c1fed631463f88b20",
+          "size_bytes": 7008466,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/lighthouse/looseLoot.json",
+          "sha256": "e3587babe05f14f5cfac99a0ea51365e8f88c613e3be0a4b8f5e43bcb118b3b0",
+          "size_bytes": 132161392,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/rezervbase/looseLoot.json",
+          "sha256": "4af753861acced676812804612bf24b6763e61a1482f869cc9c2b8b9e10cb429",
+          "size_bytes": 87972864,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/sandbox/looseLoot.json",
+          "sha256": "77ded52651e1b8d1277c1707403db0a3f886ca59f0dda4ab7f5695824e6e48a1",
+          "size_bytes": 9448250,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/sandbox_high/looseLoot.json",
+          "sha256": "dfdb39cb61c9bff38484b9151826d6cf7e36473d646ae56bb461cc6157c68753",
+          "size_bytes": 10642730,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/shoreline/looseLoot.json",
+          "sha256": "f163a09417c7e946f3ca596031fd744e368150a294a8a2c305b5df7527a1a9bd",
+          "size_bytes": 41862259,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/tarkovstreets/looseLoot.json",
+          "sha256": "a43d86cda7cb33f29c8e4b011db8d514fe9425f491c409bf107ef32c9f2f1174",
+          "size_bytes": 101161625,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/locations/woods/looseLoot.json",
+          "sha256": "489dfebe7607f66aeeefcaa7920ab1818d1119ad96fadc25d2b34be5e7d1eaf4",
+          "size_bytes": 35371738,
+          "downloaded": false
+        },
+        {
+          "path": "Libraries/SPTushonka.Server.Assets/SPT_Data/database/templates/items.json",
+          "sha256": "5093b348fd0d507cddc1e957114a77b44ff9358846299cbc98ac5e0ad4967a34",
+          "size_bytes": 19610535,
+          "downloaded": false
+        }
+      ],
+      "integrity_check": "git fsck --full --no-reflogs: passed",
+      "working_tree_clean": true
+    },
+    {
+      "name": "modules",
+      "path": "modules",
+      "origin": "https://github.com/SP-Tushonka/modules.git",
+      "branch": "reference/spt-4.1.5",
+      "commit": "d52d9c99836b6d7dc5ad93852cd8032158df0f9c",
+      "commit_date": "2026-09-04T12:10:42+02:00",
+      "shallow": true,
+      "installed_build_commit_match": true,
+      "lfs_objects": [],
+      "integrity_check": "git fsck --full --no-reflogs: passed",
+      "working_tree_clean": true
+    },
+    {
+      "name": "server-mod-examples",
+      "path": "server-mod-examples",
+      "origin": "https://github.com/SP-Tushonka/server-mod-examples.git",
+      "branch": "main",
+      "commit": "d1f077ee2be179c00db3141b3df6011213090ebb",
+      "commit_date": "2026-08-22T20:14:14+02:00",
+      "shallow": true,
+      "installed_build_commit_match": false,
+      "lfs_objects": [],
+      "integrity_check": "git fsck --full --no-reflogs: passed",
+      "working_tree_clean": true
+    },
+    {
+      "name": "wiki",
+      "path": "wiki",
+      "origin": "https://github.com/SP-Tushonka/wiki.git",
+      "branch": "main",
+      "commit": "6413655d0e81723c47e9a8f43472642c439e44e5",
+      "commit_date": "2026-09-21T12:40:40Z",
+      "shallow": true,
+      "installed_build_commit_match": false,
+      "lfs_objects": [],
+      "integrity_check": "git fsck --full --no-reflogs: passed",
+      "working_tree_clean": true
+    },
+    {
+      "name": "assembly-tool",
+      "path": "assembly-tool",
+      "origin": "https://github.com/SP-Tushonka/assembly-tool.git",
+      "branch": "master",
+      "commit": "a59b81081d78b01a7a3b0b8a32fac2e838c1fae8",
+      "commit_date": "2026-09-04T12:07:39+02:00",
+      "shallow": true,
+      "installed_build_commit_match": false,
+      "lfs_objects": [],
+      "integrity_check": "git fsck --full --no-reflogs: passed",
+      "working_tree_clean": true
+    }
+  ]
+}

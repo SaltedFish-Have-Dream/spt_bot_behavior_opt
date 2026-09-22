@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="SPTarkov.Server.Core" HintPath="$(GameRoot)\SPT_Runtime\SPTarkov.Server.Core.dll" Private="false" />
+    <Reference Include="SPTarkov.DI" HintPath="$(GameRoot)\SPT_Runtime\SPTarkov.DI.dll" Private="false" />
+    <Reference Include="SPTarkov.Common" HintPath="$(GameRoot)\SPT_Runtime\SPTarkov.Common.dll" Private="false" />
+    <Reference Include="SemanticVersioning" HintPath="$(GameRoot)\SPT_Runtime\SemanticVersioning.dll" Private="false" />
+  </ItemGroup>
+</Project>

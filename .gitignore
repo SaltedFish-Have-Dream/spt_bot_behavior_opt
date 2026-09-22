@@ -1,0 +1,50 @@
+# 本地克隆的第三方参考仓库；保留 reference 下的说明与版本锁定文件。
+/reference/SAIN/
+/reference/BigBrain/
+/reference/spt_source_code/*/
+
+# .NET 编译产物、构建缓存与发布输出。
+**/[Bb]in/
+**/[Oo]bj/
+/artifacts/
+/dist/
+/packages/
+*.binlog
+*.nupkg
+*.snupkg
+
+# 游戏程序集、依赖二进制与调试符号，不随自有源码提交。
+*.dll
+*.exe
+*.pdb
+*.mdb
+
+# IDE 缓存和个人配置；共享的 .vscode 配置仍可提交。
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+*.sln.iml
+
+# 本机路径覆盖文件；共享工程配置和依赖锁定文件仍可提交。
+/Directory.Build.local.props
+/Directory.Build.local.targets
+
+# 测试结果、覆盖率与运行日志。
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+/logs/
+*.log
+
+# 系统缓存与临时文件。
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.tmp
+*.bak
+*~

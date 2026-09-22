@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp" HintPath="$(GameRoot)\EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(GameRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="BepInEx" HintPath="$(GameRoot)\BepInEx\core\BepInEx.dll" Private="false" />
+    <Reference Include="0Harmony" HintPath="$(GameRoot)\BepInEx\core\0Harmony.dll" Private="false" />
+    <Reference Include="spt-reflection" HintPath="$(GameRoot)\BepInEx\plugins\spt\spt-reflection.dll" Private="false" />
+    <Reference Include="DrakiaXYZ-BigBrain" HintPath="$(GameRoot)\BepInEx\plugins\DrakiaXYZ-BigBrain.dll" Private="false" />
+    <Reference Include="SAIN" HintPath="$(GameRoot)\BepInEx\plugins\SAIN\SAIN.dll" Private="false" />
+    <Reference Include="SAIN.Preset.Shared" HintPath="$(GameRoot)\BepInEx\plugins\SAIN\SAIN.Preset.Shared.dll" Private="false" />
+  </ItemGroup>
+</Project>
