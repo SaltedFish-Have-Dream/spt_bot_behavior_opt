@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace AiBehavior.Client;
 
-[BepInPlugin(Id, "AI Behavior Opt", "0.1.1")]
+[BepInPlugin(Id, "AI Behavior Opt", "0.1.3")]
 [BepInDependency("xyz.drakia.bigbrain", "1.5.0")]
 [BepInIncompatibility("me.sol.sain")]
 [BepInIncompatibility("com.chazut.orbit")]
@@ -27,7 +27,7 @@ public sealed class Plugin : BaseUnityPlugin
         try // 初始化失败时保留原生游戏能力。
         {
             var options = new PluginOptions(Config); // 配置仅在启动阶段读取。
-            Logger.LogInfo($"[ABO] event=START version=0.1.1 build={typeof(Plugin).Module.ModuleVersionId:N} utc={DateTime.UtcNow:O} enabled={options.Enabled}"); // 二进制标识用于确认实际加载的是本次日志版本。
+            Logger.LogInfo($"[ABO] event=START version=0.1.3 build={typeof(Plugin).Module.ModuleVersionId:N} utc={DateTime.UtcNow:O} enabled={options.Enabled}"); // 二进制标识用于确认实际加载的是本次日志版本。
             if (!options.Enabled) { Logger.LogInfo("AI Behavior Opt 已关闭。"); return; } // 显式关闭时不注册任何运行逻辑。
             if (Chainloader.PluginInfos.ContainsKey("me.sol.sain") || Chainloader.PluginInfos.ContainsKey("com.chazut.orbit")) // 双重检查避免重复接管。
                 throw new InvalidOperationException("请在独立测试配置中停用 SAIN 和 ORBIT 后再启用本模组。");
@@ -37,6 +37,7 @@ public sealed class Plugin : BaseUnityPlugin
             string brainVersion = FileVersionInfo.GetVersionInfo(typeof(BrainManager).Assembly.Location).ProductVersion ?? ""; // 核对实际加载的 BigBrain。
             if (sptVersion.Split('+')[0] != "4.1.5" || brainVersion.Split('+')[0] != "1.5.0") throw new InvalidOperationException("首版仅支持 SPT 4.1.5 与 BigBrain 1.5.0。"); // 未验证组合保留原生。
             Runtime = new RaidRuntime(options, Logger); // 创建共享运行时而非逐 Bot MonoBehaviour。
+            Runtime.Diagnostics.Write("PLAYER_RULES", 0, Time.time, "mode=local-human-only closeMeters=30 searchMeters=120 dangerSeconds=5 nearBulletMeters=2.5 allyMeters=20 searchStepMeters=12 boss=native"); // 固定行为边界随启动日志留档。
             Runtime.Diagnostics.Write("CONFIG", 0, Time.time, FormattableString.Invariant($"eft={version} spt={sptVersion} bigBrain={brainVersion} scavs={options.ManageScavs} levels={options.MinimumLevel}-{options.MaximumLevel} softBudgetMs={options.MainThreadMilliseconds:F2} rays={options.RayRate} paths={options.PathRate} samples={options.SampleRate} overlaps={options.OverlapRate} summarySeconds={options.SummarySeconds} eventLogging={options.EventLogging} eventRate={options.EventLogsPerSecond} traceBots={options.TraceBots}")); // 只输出与本次行为诊断相关的配置。
             _harmony = new Harmony(Id); // 使用独立补丁标识，便于清理。
             _harmony.PatchAll(typeof(Plugin).Assembly); // 编译期类型与运行期签名共同验证补丁目标。
@@ -50,8 +51,8 @@ public sealed class Plugin : BaseUnityPlugin
             if (options.ManageScavs) roles.AddRange(new[] { WildSpawnType.assault, WildSpawnType.assaultGroup, WildSpawnType.marksman }); // 特殊 Scav 不自动纳入。
             var brains = new List<string> { "PmcBear", "PmcUsec", "PMC", "Assault", "Marksman" }; // 仅使用本地程序集核对过的 Brain。
             int layerId = BrainManager.AddCustomLayer(typeof(BehaviorLayer), brains, 71, roles); // 高于普通战斗和请求层，低于 78/80 的故障与避险层。
-            Runtime.Diagnostics.Write("READY", 0, Time.time, $"patchedMethods={patchedMethods} expectedMethods=9 layerId={layerId} priority=71"); // 初始化完成不等价于已经观察到 Bot 执行。
-            Logger.LogInfo("AI Behavior Opt 0.1.1 已初始化：SPT 4.1.5 / EFT 40743 / BigBrain 1.5.0。尚需战局验证。");
+            Runtime.Diagnostics.Write("READY", 0, Time.time, $"patchedMethods={patchedMethods} expectedMethods=11 layerId={layerId} priority=71"); // 初始化完成不等价于已经观察到 Bot 执行。
+            Logger.LogInfo("AI Behavior Opt 0.1.3 已初始化：SPT 4.1.5 / EFT 40743 / BigBrain 1.5.0。尚需战局验证。");
         }
         catch (Exception exception) // 防止半初始化状态留下持续覆盖。
         {

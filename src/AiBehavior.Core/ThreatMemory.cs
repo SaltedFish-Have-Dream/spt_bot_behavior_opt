@@ -3,7 +3,7 @@ using System.Numerics;
 
 namespace AiBehavior.Core;
 
-public enum ObservationSource { Vision, Hearing }
+public enum ObservationSource { Vision, Hearing, Gunshot, Danger }
 
 /// <summary>观察位置是值快照，不持有游戏对象或隐藏目标坐标提供器。</summary>
 public readonly struct Observation
@@ -90,6 +90,13 @@ public sealed class ThreatMemory
     {
         for (int index = 0; index < Capacity; index++) // 所有同名记录一并清理。
             if (_occupied[index] && _items[index].Identity == identity) { _occupied[index] = false; _items[index] = default; } // 释放字符串引用。
+    }
+
+    /// <summary>离开战局或真人目标死亡时清除所有值快照。</summary>
+    public void Clear()
+    {
+        Array.Clear(_occupied, 0, _occupied.Length);
+        Array.Clear(_items, 0, _items.Length);
     }
 
     /// <summary>检查坐标没有非数字或无限值。</summary>

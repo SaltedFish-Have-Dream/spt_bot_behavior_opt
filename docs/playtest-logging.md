@@ -1,6 +1,6 @@
-# 0.1.1 实测日志说明
+# 0.1.3 实测日志说明
 
-关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.1`；0.1.0 不具备以下完整分阶段计时和停用边沿字段。
+关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.3`；0.1.3 新增姿态写入与恢复字段，玩家范围与枪弹危险字段从 0.1.2 起提供。
 
 ## 实测步骤
 
@@ -16,7 +16,15 @@
 | 日志事件 | 能证明什么 | 判断边界 |
 | --- | --- | --- |
 | `START / CONFIG` | 插件进入初始化、实际 DLL 标识与配置 | 不代表初始化成功 |
-| `PATCH_APPLIED / READY` | 本插件拥有的补丁目标与层注册结果；预期九个方法 | 不代表已经收到 Bot 回调 |
+| `PATCH_APPLIED / READY` | 本插件拥有的补丁目标与层注册结果；预期十一个方法 | 包含 `BotOwner.OnGetHit` 与 `Shot.Update`；不代表已经收到 Bot 回调 |
+| `PLAYER_RULES` | 本版运行模式、距离、危险时长和 Boss 范围 | `mode=local-human-only` 是固定模式，没有默认扩大至 AI 或远程玩家 |
+| `PLAYER_SCOPE_ENTERED / PLAYER_SCOPE_LEFT` | 从真人线索激活或交还原生的边沿 | 直接受击也可直接进入 `Evade`，不必先出现 ENTERED |
+| `PLAYER_DANGER` | 玩家枪弹危险已保存且设置避险状态 | `kind=hit/near-bullet/ally-hit`；实际动作仍看 `ACTION_ENTERED` |
+| `DANGER_PRONE` | 无验证可用掩体后已调用原生合法卧姿 | 不能仅靠此日志证明模型姿态完成或保证不会被命中 |
+| `POSE_CHANGED` | 本模组真正提交了新蹲站目标，含前值、目标、状态、危险/移动/掩体条件 | 相同目标不重复写；不代表动画已完成，也不记录其他插件的姿态写入 |
+| `POSE_RESTORED` | 行为层交还控制，恢复仍属于本模组的目标姿态 | 原生已改写目标时不覆盖；未改过姿态或重复释放不计数 |
+| `PLAYER_SCOPE` | 玩家增强参与数、紧急队列、弹道积压/丢弃、告警合并 | 与活动数、地图交火情况及 `TIMING` 联合判断 |
+| `PLAYER_EVENT_FAILED` | 当前局的命中或近弹入口异常并被停用 | 原生伤害/弹道保留；必须看异常栈，不能算本版测试通过 |
 | `HEARTBEAT` | 插件仍在更新，目前未观察到 Bot 激活 | 在菜单正常；战局内长期如此需排查激活入口 |
 | `RAID_OBSERVED` | 本次进程已收到某局首次 Bot 激活 | 时间不是地图加载起点 |
 | `REGISTERED / NATIVE_SKIPPED / BRAIN_SKIPPED` | 受管上下文建立或明确旁路原因 | 普通注册明细可能限频；每局前 32 种未知角色/脑型组合首次必记，不消耗普通令牌 |
@@ -37,12 +45,18 @@
 | `RAID_END` | 战局清理后剩余受管对象和任务数量 | 正常应为 `remainingBots=0 pending=0` |
 | `INIT_FAILED / REGISTER_FAILED / FALLBACK` | 初始化、注册或运行降级及异常栈 | 结合完整日志中的 Harmony/BigBrain 错误定位 |
 
-`SUMMARY.states` 的固定顺序为 `Native,Observe,Engage,Cover,Investigate,Search,Recover,Disengage`，实际字段对应枚举顺序；不要把状态编号当成角色编号。
+`SUMMARY.states` 的固定顺序为 `Native,Observe,Engage,Cover,Investigate,Search,Recover,Disengage,Evade,Advance`，最后两项分别是玩家危险避险、安全窗口后的有限推进；不要把状态编号当成角色编号。
 
 ## 计数判读
 
 - `COUNTERS` 是本局累计值，周期日志之间取差值才是该段增量；重进战局会重置。最终汇总在清理前生成，清理结果由后面的 `RAID_END` 单独报告。
 - `active/inactive` 是汇总时活动/停用受管数，两者之和为 `bots`，不是地图全部 AI 数。
+- `PLAYER_SCOPE.participating` 是实际处于玩家情境的受管数；AI 单独互战时应不因 AI 事件增长。已有玩家记忆尚未失效则可能继续参与，不能把人数非零直接认定为串入 AI 事件。
+- `urgentPending/urgentExpired` 为紧急查询；`SUMMARY.pending/expired` 仍是普通查询，`shotPending/shotExpired` 为射击队列，三者分别判读。
+- `bulletChecks` 是近弹候选筛选总数，包含失活/非敌对候选的过滤；`bulletPending` 上限 64，`bulletDropped/bulletExpired` 增长意味着部分近弹通知被舍弃，直接命中不经过该队列。
+- `allyAlertsSuppressed` 是合并的受击广播次数，不是漏判直接受害者的次数；`hitEnabled/bulletEnabled` 正常为 `True`。
+- `PoseChanged/PoseRestored` 统计实际调用姿态接口的次数。连续近弹与路径重规划不应导致 `target=0.00/0.90` 高频交替；普通意图需稳定 0.75 秒，真实新危险可立即压低。判读时区分同一 Bot 与不同 Bot 的事件，结合 `CONTROL_RELEASED/CLAIMED` 判断控制交接。
+- `SOUND_SAVED` 的 `kind=gunshot/step`、`band=Close/Search`、`distance/error/ttl` 分别用于核对来源、枪声距离段、事件距离、定位半径与寿命；脚步的 `band` 字段不代表套用枪声分段。120 米外枪声会增加 `FarGunshotIgnored`。
 - `Deactivated/Reactivated` 统计活动边沿；`ResourceReleased` 统计真正消费清理责任的次数，包括自有控制与原生层射击请求，因此不要求它与 `ControlReleased` 相等。稳定停用期不应持续增加这些计数。
 - `DecisionServed` 为实际开始的到期决策数，`DecisionForced` 为超出 40% 软阈值后执行的保障次数，`DecisionDelayed` 为迟到超过 100 毫秒的执行次数。
 - `decisionWaitAvgMs/decisionWaitMaxMs` 统计已开始执行的决策超过截止时刻的等待；`decisionDue/decisionOldestDueMs` 是汇总时尚待执行的活动项及最大迟到。二者需一起看，不能用“已服务等待很小”掩盖未服务项。均使用 Unity 局内时钟，不能当作 CPU 耗时或完整感知到动作延迟。
@@ -58,7 +72,7 @@
 
 ## 分阶段耗时的口径
 
-`TIMING` 包含 `Safety`（安全检查及其中的停用处理）、`Decision`（高层决策）、`Action`（动作执行）、`Perception`（视觉/声音回调）、`Shooting`（射击许可与枪线验证）、`Query`（普通掩体/导航查询）、`Lifecycle`（注册/销毁和 BigBrain 控制交接）、`Logging`（同步日志与周期汇总）。阶段内调用的原生方法耗时也归属该阶段；未插桩入口、区间之间的游戏工作和异步磁盘刷盘不在此口径内。
+`TIMING` 包含 `Safety`（安全检查及其中的停用处理）、`Decision`（高层决策）、`Action`（动作执行）、`Perception`（玩家视觉/声音/受击回调及近弹队列）、`Shooting`（射击许可与枪线验证）、`Query`（紧急与普通掩体/导航查询）、`Lifecycle`（注册/销毁和 BigBrain 控制交接）、`Logging`（同步日志与周期汇总）。阶段内调用的原生方法耗时也归属该阶段；AI 来源提前退出的轻量判断、未插桩入口、区间之间的游戏工作和异步磁盘刷盘不在此口径内。
 
 - `*TotalMs` 为已结算帧中该阶段的独占累计毫秒数，嵌套射击和日志从父阶段扣除；各阶段之和与 `workAvgMs × workFrames` 在舍入误差内一致。
 - `*Calls` 为相同已结算帧中的区间调用次数。`*CallPeakMs` 为单次区间含子调用的峰值，便于定位一次原生同步调用或日志阻塞；不同阶段的单次峰值不可相加。

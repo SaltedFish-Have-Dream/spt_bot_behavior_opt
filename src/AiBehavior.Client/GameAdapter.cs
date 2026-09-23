@@ -8,6 +8,18 @@ namespace AiBehavior.Client;
 /// <summary>集中保存 EFT 40743 中已经核对的类型和坐标边界。</summary>
 internal static class GameAdapter
 {
+    /// <summary>本版只增强本机真人玩家引发的交战，AI PMC 和未知来源全部旁路。</summary>
+    internal static bool IsLocalPlayer(IPlayer? player)
+    {
+        return PlayerThreatPolicy.IsLocalHuman(player != null, player?.IsAI ?? true, player?.IsYourPlayer ?? false);
+    }
+
+    /// <summary>检查当前目标是否为真人，不读取目标隐藏位置。</summary>
+    internal static bool IsPlayerTarget(EnemyInfo? enemy)
+    {
+        return enemy != null && IsLocalPlayer(enemy.Person);
+    }
+
     /// <summary>白名单判定角色，绝不将 pmcBot（Raider）误认为 PMC。</summary>
     internal static BotRole ResolveRole(BotOwner owner, bool scavs)
     {

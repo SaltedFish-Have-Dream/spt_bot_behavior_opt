@@ -1,6 +1,7 @@
 using System;
 using AiBehavior.Core;
 using EFT;
+using EFT.Ballistics;
 using HarmonyLib;
 using UnityEngine;
 
@@ -61,6 +62,7 @@ internal static class VisionPatch
     private static void Postfix(EnemyInfo __instance)
     {
         RaidRuntime? runtime = Plugin.Runtime; // 保存当前运行时，避免卸载时二次读取。
+        if (!GameAdapter.IsPlayerTarget(__instance)) return; // AI 之间的视觉不创建本模组记忆或调度工作。
         if (runtime?.TryGet(__instance.Owner, out BotAgent agent) != true) return; // 原生角色完全旁路。
         long start = runtime.BeginWork(WorkPhase.Perception); // 观察处理成本也计入诊断。
         try { agent.ObserveVision(__instance, Time.time); } // 仅真正可见的个人位置可写入记忆。
@@ -74,13 +76,16 @@ internal static class HearingPatch
 {
     /// <summary>复用原生声音过滤结果，替换已听到声音的定位和调查分支。</summary>
     [HarmonyPrefix]
-    private static bool Prefix(BotHearingSensor __instance, IPlayer enemy, Vector3 pos, bool wasHeard)
+    private static bool Prefix(BotHearingSensor __instance, IPlayer enemy, Vector3 pos, bool wasHeard, AISoundType type)
     {
+        if (!GameAdapter.IsLocalPlayer(enemy)) return true; // AI 和未知来源完整执行原生听觉，不被本模组吃掉事件。
         RaidRuntime? runtime = Plugin.Runtime; // 只操作已注册的角色。
-        if (!wasHeard || runtime?.TryGet(__instance._botOwner, out BotAgent agent) != true) return true; // 未听见的近弹危险仍交原生处理。
-        if (enemy != null && enemy.AIData.IsAI && agent.Owner.BotsGroup.Contains(enemy.AIData.BotOwner)) return false; // 同队声音不当成敌情。
+        if (runtime?.TryGet(__instance._botOwner, out BotAgent agent) != true) return true; // Boss 与未接管角色继续原生处理。
+        bool gunshot = type == AISoundType.gun || type == AISoundType.silencedGun; // 距离分段只作用于枪声。
+        if (!gunshot && type != AISoundType.step) return true; // 其他声音保持原生语义。
+        if (!wasHeard) return !gunshot; // 未听见的枪声不凭枪口方向作弊，近弹由实际弹道入口补充。
         long start = runtime.BeginWork(WorkPhase.Perception); // 听觉事件风暴必须反映在统计中。
-        try { agent.ObserveSound(enemy?.ProfileId ?? "unknown-sound", pos, Time.time); return false; } // 不再让原生分支向全队广播精确位置。
+        try { agent.ObserveSound(enemy, pos, Time.time, gunshot); return false; } // 只处理真人事件，不全队广播精确位置。
         catch (Exception exception) { runtime.Fail(agent, exception); return true; } // 失效后恢复原生听觉。
         finally { runtime.Charge(start); } // 合并后的低成本事件同样计时。
     }
@@ -94,6 +99,7 @@ internal static class GoalEnemyPatch
     private static void Prefix(BotMemory __instance, ref EnemyInfo value)
     {
         if (value == null || Plugin.Runtime?.TryGet(__instance._owner, out BotAgent agent) != true) return; // 未接管角色和清空操作不改写。
+        if (!GameAdapter.IsPlayerTarget(value)) return; // AI 目标不能因没有本模组记忆而被清除。
         if (!GameAdapter.DirectlyVisible(value, Time.time) && !agent.Memory.TryGet(value.ProfileId, Time.time, out _)) value = null!; // 允许直接新视觉，拒绝隐藏且无记忆的目标。
     }
 }
@@ -106,6 +112,7 @@ internal static class AimTargetPatch
     internal static bool Prefix(BotAimingData __instance, ref Vector3 __0)
     {
         if (Plugin.Runtime?.TryGet(__instance._owner, out BotAgent agent) != true) return true; // 特殊角色保留原生。
+        if (!GameAdapter.IsPlayerTarget(__instance._owner.Memory.GoalEnemy)) return true; // AI 互战和无目标的原生瞄准完整旁路。
         if (agent.TryVisibleObservation(__instance._owner.Memory.GoalEnemy, Time.time, out Observation observation)) // 只允许使用个人视觉快照。
         { __0 = GameAdapter.Position(observation.AimPosition); return true; } // 原生动作同样不能读取两次观察之间的实时隐藏坐标。
         __instance.LoseTarget(); // 清除瞄准状态，不把输入的隐藏坐标写入瞄准器。
@@ -133,6 +140,7 @@ internal static class ShootPatch
     {
         __state = false; // 后置统计只观察本插件明确放行的新连射。
         RaidRuntime? runtime = Plugin.Runtime; // 只取一次共享运行时。
+        if (!GameAdapter.IsPlayerTarget(__instance._owner.Memory.GoalEnemy)) return true; // Bot 对 Bot 射击不消耗本模组射线或等级门槛。
         if (runtime?.TryGet(__instance._owner, out BotAgent agent) != true) return true; // Boss 等角色完全保留原生射击。
         long start = runtime.BeginWork(WorkPhase.Shooting); // 射击许可检查与物理验证归入同一阶段。
         try // 单 Bot 异常允许原生回退。
@@ -155,6 +163,7 @@ internal static class ShootPatch
     private static void Postfix(ShootData __instance, bool __result, bool __state)
     {
         if (!__state || Plugin.Runtime?.TryGet(__instance._owner, out BotAgent agent) != true) return; // 未放行和非受管角色不计数。
+        if (!GameAdapter.IsPlayerTarget(__instance._owner.Memory.GoalEnemy)) return; // 前后置之间目标改变时不记录为玩家交战。
         long start = agent.Runtime.BeginWork(WorkPhase.Shooting); // 将新增后置诊断纳入插件计时。
         try // 不在观察日志中改变射击结果。
         {
@@ -162,5 +171,52 @@ internal static class ShootPatch
             if (agent.Trace(kind, Time.time)) agent.WriteTrace("SHOT_NATIVE_RESULT", Time.time, $"accepted={__result} shooting={__instance.Shooting}"); // 通过全局和单 Bot 两级限频后才格式化。
         }
         finally { agent.Runtime.Charge(start); } // 所有诊断路径都结束计时。
+    }
+}
+
+[HarmonyPatch(typeof(BotOwner), nameof(BotOwner.OnGetHit))]
+internal static class PlayerHitPatch
+{
+    /// <summary>原生完成伤害与敌对更新后，仅把真人枪弹命中送入独立危险计时。</summary>
+    [HarmonyPostfix]
+    private static void Postfix(BotOwner __instance, DamageInfo damageInfo)
+    {
+        IPlayer? source = damageInfo.Player?.iPlayer; // 伤害来源必须来自事件，不推断为当前目标。
+        if (damageInfo.DamageType != EDamageType.Bullet || !GameAdapter.IsLocalPlayer(source)) return; // AI、坠落、爆炸和未知伤害不触发新增避险。
+        RaidRuntime? runtime = Plugin.Runtime; // 只使用当前战局运行时。
+        if (runtime == null || !runtime.PlayerHitsEnabled) return; // 插件未启动或入口已经降级时保留原生结果。
+        long start = runtime.BeginWork(WorkPhase.Perception); // 受击通知和固定范围传播单独计时。
+        try { runtime.PlayerHit(__instance, source!, damageInfo.MasterOrigin, Time.time); } // 使用子弹起点快照，不读取射手当前位置。
+        catch (Exception exception) { runtime.FailPlayerEvent(false, exception); } // 通知失败不修改原生伤害，防止逐命中刷错。
+        finally { runtime.Charge(start); } // 不管结果如何结束区间。
+    }
+}
+
+[HarmonyPatch(typeof(Shot), nameof(Shot.Update))]
+internal static class PlayerBulletPatch
+{
+    /// <summary>仅为真人子弹记录本次模拟前的坐标；AI 弹道只做来源判断。</summary>
+    [HarmonyPrefix]
+    private static void Prefix(Shot __instance, out Vector3? __state)
+    {
+        __state = Plugin.Runtime?.PlayerBulletsEnabled == true && GameAdapter.IsLocalPlayer(__instance.Player?.iPlayer) &&
+            __instance.Weapon is EFT.InventoryLogic.Weapon weapon && !weapon.IsGrenadeLauncher ? __instance.CurrentPosition : null; // 手雷碎片和未知武器不冒充真人枪弹。
+    }
+
+    /// <summary>碰撞处理完成后读取实际终点，固定队列内分帧判断近弹与附近弹着。</summary>
+    [HarmonyPostfix]
+    private static void Postfix(Shot __instance, Vector3? __state)
+    {
+        RaidRuntime? runtime = Plugin.Runtime; // 前后置之间运行时可能已结束。
+        if (!__state.HasValue || runtime == null) return; // AI 子弹不排队、不遍历 Bot。
+        long start = runtime.BeginWork(WorkPhase.Perception); // 玩家轨迹快照与入队成本也纳入感知统计。
+        try // 观察原生弹道不能使原生子弹模拟失败。
+        {
+            var history = __instance.PositionHistory; // 原生 HandleCollision 会把最后一点裁剪至命中点。
+            if (history == null || history.Count == 0) return; // 异常轨迹不使用未经碰撞裁剪的预测位置。
+            runtime.EnqueuePlayerBullet(__instance.Player.iPlayer, __state.Value, history[history.Count - 1], __instance.MasterOrigin, Time.time); // 不保存池化 Shot 对象。
+        }
+        catch (Exception exception) { runtime.FailPlayerEvent(true, exception); } // 该局关闭失败入口，原生弹道继续执行。
+        finally { runtime.Charge(start); } // 包括快照拒绝和异常回退的成本。
     }
 }

@@ -42,6 +42,13 @@ try {
     Assert-ApiMethod $apiGame 'BotAimingData' 'SetTarget' 'System.Void' @('UnityEngine.Vector3') # 首次瞄准。
     Assert-ApiMethod $apiGame 'BotAimingData' 'UpdateTarget' 'System.Void' @('UnityEngine.Vector3') # 连续瞄准。
     Assert-ApiMethod $apiGame 'ShootData' 'Shoot' 'System.Boolean' @() # 扳机入口。
+    Assert-ApiMethod $apiGame 'EFT.BotOwner' 'OnGetHit' 'System.Void' @('EFT.Ballistics.DamageInfo', 'EBodyPart', 'System.Single') # 核对真实伤害来源入口。
+    Assert-ApiMethod $apiGame 'EFT.Ballistics.Shot' 'Update' 'System.Void' @('System.Single') # 碰撞处理完成后读取实际弹道终点。
+    Assert-ApiMethod $apiGame 'EFT.IPlayer' 'get_IsAI' 'System.Boolean' @() # 阵营不能替代 AI 身份判定。
+    Assert-ApiMethod $apiGame 'EFT.IPlayer' 'get_IsYourPlayer' 'System.Boolean' @() # 本版仅支持本机真人玩家。
+    Assert-ApiMethod $apiGame 'BotLay' 'set_IsLay' 'System.Void' @('System.Boolean') # 原生卧姿状态同步入口。
+    Assert-ApiMethod $apiGame 'EFT.MovementContext' 'get_CanProne' 'System.Boolean' @() # 原生环境与姿态合法性检查。
+    Assert-ApiMethod $apiGame 'LookData' 'ResetUpdateTime' 'System.Void' @() # 警戒只唤醒真实视觉，不伪造可见性。
     Assert-ApiMethod $apiGame 'BotMover' 'GoToByWay' 'System.Void' @('UnityEngine.Vector3[]', 'System.Single') # 复用完整路径。
     Assert-ApiMethod $apiGame 'BotFirstAid' 'ApplyToSelf' 'System.Void' @('System.Nullable`1<System.Int32>', 'System.Action') # 原生治疗。
     $apiRoles = @{ pmcBEAR = 51; pmcUSEC = 52; pmcBot = 9; assault = 1; assaultGroup = 19; marksman = 0 } # 明确区分 Raider 与 PMC。

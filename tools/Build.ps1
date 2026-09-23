@@ -54,9 +54,11 @@ try {
         }
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1-user-guide.md') -Destination (Join-Path $packageStage 'README.md') # 包内附带实际功能和安装限制。
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\playtest-logging.md') -Destination (Join-Path $packageStage 'playtest-logging.md') # 安装包内也能直接查阅日志字段与实测流程。
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.2-player-only.md') -Destination (Join-Path $packageStage 'player-only.md') # 附带本版玩家行为边界与重点验收场景。
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.3-posture-fix.md') -Destination (Join-Path $packageStage 'posture-fix.md') # 附带姿态修复、已知问题与本版复测重点。
         $distributionRoot = Join-Path $projectRoot 'dist' # 发布文件保存在 Git 忽略目录。
         New-Item -ItemType Directory -Path $distributionRoot -Force | Out-Null # 不修改游戏安装。
-        $packageArchive = Join-Path $distributionRoot 'AiBehaviorOpt-0.1.1.zip' # 固定版本产物便于安装。
+        $packageArchive = Join-Path $distributionRoot 'AiBehaviorOpt-0.1.3.zip' # 固定版本产物便于安装。
         Compress-Archive -Path (Join-Path $packageStage '*') -DestinationPath $packageArchive -Force # 只压缩本次新建的暂存目录。
         Get-FileHash -LiteralPath $packageArchive -Algorithm SHA256 # 输出校验值供交付追溯。
     }

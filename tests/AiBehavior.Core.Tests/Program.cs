@@ -37,7 +37,23 @@ internal static class Program
             UnknownBrainFirstEvidence(); // 检查首次兼容信息不依赖普通事件额度且容量有界。
             WorkTimingNestedAndLate(); // 检查嵌套独占归属和 LateUpdate 之后的回调。
             WorkTimingDeepNesting(); // 检查极端重入不会抛错或重复累计。
-            Console.WriteLine($"PASS: 23 scenarios, {_assertions} assertions."); // 输出实际验证数量。
+            LocalPlayerScope(); // 检查真人身份、混战交接与玩家死亡后的退出。
+            GunshotDistances(); // 检查三十米和一百二十米的开闭边界。
+            GunshotAccuracy(); // 检查距离、等级和固定角色的定位误差。
+            PlayerDangerWindow(); // 检查真实危险刷新与五秒后有限推进。
+            PlayerDangerInvalidAndClose(); // 检查无效来源和近枪不能延长危险。
+            PlayerDangerDecisions(); // 检查紧急避险、低血量和缺弹的优先级。
+            SegmentedSearch(); // 检查远距搜索步长、有限寿命和不可超越目标。
+            BulletCollisionGeometry(); // 检查擦弹、弹着点和墙后线段外的排除。
+            BulletQueueLimitsAndExpiry(); // 检查轨迹容量、过期、游标与非法输入。
+            PlayerEventBudgets(); // 检查弹道与同组告警的帧率无关限额。
+            PostureDangerStorm(); // 检查连射和移动重规划不能在同一危险窗口反复蹲起。
+            PostureStableIntent(); // 检查普通动作的短暂切换不会提交姿态。
+            PostureOwnershipHandoff(); // 检查未写姿态、重复清理与原生抢占后的归属。
+            PostureRecoveryAndProne(); // 检查恢复及原生卧姿退出后的姿态衔接。
+            CoverArrivalBoundaries(); // 检查掩体边界小幅位移不会反复触发起步。
+            PostureInvalidInputs(); // 检查非法时间、姿态和无控制状态不提交动作。
+            Console.WriteLine($"PASS: 39 scenarios, {_assertions} assertions."); // 输出实际验证数量。
             return 0;
         }
         catch (Exception exception) // 明确报告失败而不是继续生成包。
@@ -416,6 +432,299 @@ internal static class Program
         profiler.CompleteFrame(200);
         Check(profiler.StackOverflows == 32 && profiler.TotalFrameTicks == 128, "deep nesting remains bounded and singly counted");
         Check(profiler.Calls[(int)WorkPhase.Action] == 32 && profiler.PeakCallTicks[(int)WorkPhase.Action] == 128, "overflow merges into parent timing");
+    }
+
+    /// <summary>只有本机真人能唤醒增强，普通 AI 目标优先交还原生，真实危险允许临时避险。</summary>
+    private static void LocalPlayerScope()
+    {
+        Check(PlayerThreatPolicy.IsLocalHuman(true, false, true), "local human accepted");
+        Check(!PlayerThreatPolicy.IsLocalHuman(true, true, true), "AI cannot impersonate human");
+        Check(!PlayerThreatPolicy.IsLocalHuman(false, false, true), "unknown source rejected");
+        Check(!PlayerThreatPolicy.IsLocalHuman(true, false, false), "remote actor outside single-player scope");
+        Check(!PlayerThreatPolicy.ShouldManage(true, true, false, false, false, false), "idle bot stays native");
+        Check(PlayerThreatPolicy.ShouldManage(true, true, false, true, false, false), "native player sight activates scope");
+        Check(PlayerThreatPolicy.ShouldManage(true, true, false, false, true, false), "player sound activates search without goal");
+        Check(!PlayerThreatPolicy.ShouldManage(true, true, true, false, true, false), "AI combat wins over stale player memory");
+        Check(PlayerThreatPolicy.ShouldManage(true, true, true, false, false, true), "player hit can interrupt AI combat briefly");
+        Check(!PlayerThreatPolicy.ShouldManage(false, true, false, true, true, true), "inactive bot cannot take control");
+        Check(!PlayerThreatPolicy.ShouldManage(true, false, false, true, true, true), "dead player releases scope even during danger");
+        var memory = new ThreatMemory(); // 离开无效玩家情境时必须能清除所有类型的记忆。
+        memory.Observe(new Observation("player", ObservationSource.Danger, Vector3.One, 1, 20, 3), 1);
+        memory.Clear();
+        Check(!memory.TryGetLatest(2, out _), "player invalidation clears danger memory");
+    }
+
+    /// <summary>距离分段独立于等级，不能以未听见或非法距离创建调查。</summary>
+    private static void GunshotDistances()
+    {
+        Check(PlayerThreatPolicy.ClassifyGunshot(true, true, 0) == GunshotBand.Close, "zero distance close");
+        Check(PlayerThreatPolicy.ClassifyGunshot(true, true, 30) == GunshotBand.Close, "30 inclusive close");
+        Check(PlayerThreatPolicy.ClassifyGunshot(true, true, 30.01f) == GunshotBand.Search, "above 30 search");
+        Check(PlayerThreatPolicy.ClassifyGunshot(true, true, 120) == GunshotBand.Search, "120 inclusive search");
+        Check(PlayerThreatPolicy.ClassifyGunshot(true, true, 120.01f) == GunshotBand.Ignore, "beyond 120 ignore");
+        Check(PlayerThreatPolicy.ClassifyGunshot(false, true, 10) == GunshotBand.Ignore, "AI gun ignored");
+        Check(PlayerThreatPolicy.ClassifyGunshot(true, false, 10) == GunshotBand.Ignore, "unheard gun ignored");
+        foreach (float distance in new[] { -1f, float.NaN, float.NegativeInfinity, float.PositiveInfinity }) // 非法值不得穿过边界检查。
+            Check(PlayerThreatPolicy.ClassifyGunshot(true, true, distance) == GunshotBand.Ignore, "invalid gun distance");
+    }
+
+    /// <summary>远距误差随距离增大、随 PMC 等级缩小；固定模板不借用 PMC 等级。</summary>
+    private static void GunshotAccuracy()
+    {
+        Near(PlayerThreatPolicy.GunshotError(SkillProfile.Create(BotRole.Pmc, 1), 120), 16, "level 1 distant error");
+        Near(PlayerThreatPolicy.GunshotError(SkillProfile.Create(BotRole.Pmc, 60), 120), 6, "level 60 distant error");
+        Near(PlayerThreatPolicy.GunshotError(SkillProfile.Create(BotRole.Scav, 1), 120), 20, "scav distant error");
+        for (int level = 1; level <= 60; level++) // 近距豁免对整个等级区间生效。
+        {
+            SkillProfile skill = SkillProfile.Create(BotRole.Pmc, level); // 每个等级只读能力快照。
+            Near(PlayerThreatPolicy.GunshotError(skill, 30), 0, "close gun precise snapshot at every level");
+            Check(PlayerThreatPolicy.GunshotError(skill, 60) < PlayerThreatPolicy.GunshotError(skill, 120), "distance increases uncertainty");
+            Near(PlayerThreatPolicy.GunshotError(SkillProfile.Create(BotRole.Scav, level), 120), 20, "scav error fixed across levels");
+            Near(PlayerThreatPolicy.GunshotError(SkillProfile.Create(BotRole.Marksman, level), 120), 16, "marksman error fixed across levels");
+            if (level < 60) Check(PlayerThreatPolicy.GunshotError(skill, 90) > PlayerThreatPolicy.GunshotError(SkillProfile.Create(BotRole.Pmc, level + 1), 90), "PMC level reduces uncertainty monotonically"); // 等级增加不能反向扩大误差。
+        }
+    }
+
+    /// <summary>真实命中重置五秒安全窗口，AI 伤害和倒序事件不能刷新。</summary>
+    private static void PlayerDangerWindow()
+    {
+        var danger = new PlayerDanger();
+        Check(!danger.IsActive(0) && !danger.CanAdvance(0), "new bot has no danger");
+        Check(danger.Observe(true, new Vector3(80, 0, 0), 10, 30), "player danger accepted");
+        Check(danger.IsActive(10) && danger.IsActive(14.999), "danger holds before five seconds");
+        Check(!danger.CanAdvance(14.999) && !danger.IsActive(15) && danger.CanAdvance(15), "exact five seconds changes from evade to advance");
+        Check(!danger.Observe(false, Vector3.Zero, 16, 30) && danger.LastDangerAt == 10, "AI damage does not refresh player danger");
+        Check(danger.Observe(true, new Vector3(90, 0, 0), 17, 20), "new player hit restarts safety window");
+        Check(danger.IsActive(21.999) && danger.CanAdvance(22), "latest actual danger controls timer");
+        Check(!danger.Observe(true, Vector3.One, 16, 45) && danger.Position.X == 90, "out-of-order danger cannot relocate snapshot");
+        Check(danger.CanAdvance(36.999) && !danger.CanAdvance(37), "advance ends at fixed deadline");
+        danger.Clear();
+        Check(!danger.IsActive(18) && !danger.CanAdvance(18) && danger.CloseAlertUntil == 0, "clear removes all player intentions");
+    }
+
+    /// <summary>近距枪声只提供短暂反应豁免；无效快照不能污染危险计时。</summary>
+    private static void PlayerDangerInvalidAndClose()
+    {
+        var danger = new PlayerDanger();
+        Check(!danger.Observe(true, new Vector3(float.NaN), 1, 10), "invalid danger point rejected");
+        Check(!danger.Observe(true, Vector3.Zero, double.PositiveInfinity, 10), "invalid danger time rejected");
+        Check(!danger.Observe(true, Vector3.Zero, 1, double.NaN), "invalid search lifetime rejected");
+        danger.AlertClose(2); // 只听见枪声也能进入近距快速警戒。
+        Check(danger.CloseAlertUntil == 4 && !danger.IsActive(2) && !danger.CanAdvance(5), "close sound alone is not a hit");
+        danger.Observe(true, Vector3.One, 10, 12); // 构造已有近弹危险。
+        danger.AlertClose(14.9); // 持续的普通枪声不能重置五秒危险窗口。
+        Check(danger.LastDangerAt == 10 && !danger.IsActive(15) && danger.CanAdvance(15), "close alert does not prolong suppression");
+        Check(danger.Position == Vector3.One, "close alert does not track hidden player position");
+    }
+
+    /// <summary>紧急危险及时覆盖普通动作，安全期推进不压过缺弹、伤势与原生恢复。</summary>
+    private static void PlayerDangerDecisions()
+    {
+        SkillProfile skill = SkillProfile.Create(BotRole.Pmc, 1);
+        var policy = new DecisionPolicy();
+        var input = new DecisionInput { HasClue = true, Visible = true, Reacted = true, CanMove = true };
+        Check(policy.Decide(input, skill, 0, 1) == BehaviorState.Engage, "start native-legal engagement");
+        input.PlayerDanger = true; // 发生在普通动作最短承诺期内。
+        Check(policy.Decide(input, skill, 0.01, 1) == BehaviorState.Evade, "player danger immediately overrides hold");
+        input.RecoveryRunning = true; // Evade 执行器只压低姿态，不取消原生手部动作。
+        Check(policy.Decide(input, skill, 0.02, 1) == BehaviorState.Evade, "danger state also represents protected ongoing recovery");
+        input.PlayerDanger = false;
+        input.AdvanceAfterDanger = true;
+        Check(policy.Decide(input, skill, 5.01, 1) == BehaviorState.Recover, "ongoing recovery blocks advance");
+        input.RecoveryRunning = false;
+        Check(policy.Decide(input, skill, 6, 1) == BehaviorState.Advance, "healthy bot advances after safety window");
+        input.LowHealth = true;
+        Check(policy.Decide(input, skill, 7, 1) == BehaviorState.Observe, "badly wounded bot does not rush");
+        input.NeedsRecovery = true;
+        Check(policy.Decide(input, skill, 8, 1) == BehaviorState.Recover, "empty magazine or treatment need blocks rush");
+        input.HasCover = true;
+        Check(policy.Decide(input, skill, 9, 1) == BehaviorState.Disengage, "recovery need favors reachable cover");
+        input.NeedsRecovery = input.LowHealth = input.HasCover = input.Visible = false;
+        input.CanMove = false;
+        Check(policy.Decide(input, SkillProfile.Create(BotRole.Marksman, 1), 10, 1) != BehaviorState.Advance, "stationary marksman does not pursue");
+        input.HasClue = false;
+        Check(policy.Decide(input, skill, 10.01, 1) == BehaviorState.Native, "expired danger clue releases native control");
+    }
+
+    /// <summary>一百二十米外的命中仍可有限调查，但任何一步都不能越过快照目标。</summary>
+    private static void SegmentedSearch()
+    {
+        Vector3 target = new(100, 30, -50);
+        Vector3 position = Vector3.Zero;
+        for (int step = 0; step < 20 && position != target; step++) // 任意斜向目标都应在有限次数到达。
+        {
+            Vector3 next = PlayerThreatPolicy.NextSearchStep(position, target); // 调用生产路径分段规则。
+            Check(Vector3.Distance(position, next) <= 12.00002f, "segment bounded by twelve meters");
+            Check(Vector3.Distance(next, target) < Vector3.Distance(position, target), "segment makes progress without overshoot");
+            position = next; // 下一次规划以实际新位置为起点。
+        }
+        Check(position == target, "segmented search reaches snapshot");
+        Check(PlayerThreatPolicy.NextSearchStep(target, target) == target, "zero distance remains finite");
+        Check(PlayerThreatPolicy.SearchLifetime(0) == 12 && PlayerThreatPolicy.SearchLifetime(120) == 45 && PlayerThreatPolicy.SearchLifetime(1000) == 45, "search lifetime bounded at both ends");
+        var danger = new PlayerDanger();
+        Check(danger.Observe(true, new Vector3(1000, 0, 0), 1, PlayerThreatPolicy.SearchLifetime(1000)) && danger.IsActive(1), "direct distant hit bypasses sound radius");
+        Check(!danger.CanAdvance(46), "distant hit cannot create indefinite pursuit");
+    }
+
+    /// <summary>几何检测只使用实际飞行段，不能延长穿墙，也能识别退化弹着点。</summary>
+    private static void BulletCollisionGeometry()
+    {
+        Vector3 from = Vector3.Zero;
+        Vector3 to = new(10, 0, 0); // 假定原生碰撞把轨迹裁剪在十米处的墙面。
+        Near(PlayerThreatPolicy.SegmentDistanceSquared(new Vector3(5, 2.5f, 0), from, to), 6.25f, "near bullet boundary");
+        Check(PlayerThreatPolicy.SegmentDistanceSquared(new Vector3(5, 2.51f, 0), from, to) > 6.25f, "outside near radius");
+        Check(PlayerThreatPolicy.SegmentDistanceSquared(new Vector3(15, 0, 0), from, to) > 6.25f, "wall-clipped segment does not reach distant bot behind wall");
+        Check(PlayerThreatPolicy.SegmentDistanceSquared(new Vector3(-3, 0, 0), from, to) > 6.25f, "segment does not extend behind muzzle");
+        Near(PlayerThreatPolicy.SegmentDistanceSquared(new Vector3(10, 2, 0), to, to), 4, "near impact detected for degenerate segment");
+        Near(PlayerThreatPolicy.SegmentDistanceSquared(new Vector3(5, 2.5f, 0), to, from), 6.25f, "segment direction independent");
+    }
+
+    /// <summary>弹道风暴固定在六十四项，重排不续期，删除 Bot 后游标正确补偿。</summary>
+    private static void BulletQueueLimitsAndExpiry()
+    {
+        var queue = new BulletTraceQueue();
+        for (int index = 0; index < 64; index++) // 填满固定容量而不依赖客户端对象。
+            Check(queue.Enqueue(new BulletTrace { From = Vector3.Zero, To = Vector3.One, Origin = new Vector3(index, 0, 0), Deadline = 1, NextBot = 3 }), "bounded trace accepted");
+        Check(!queue.Enqueue(new BulletTrace { Deadline = 2 }) && queue.Count == 64 && queue.Dropped == 1, "overload rejected without allocation");
+        queue.RemovedBotAt(1); // 已经过的列表成员移除，下一待处理成员左移一位。
+        Check(queue.TryDequeue(0.5, out BulletTrace trace) && trace.NextBot == 2 && trace.Origin.X == 0, "FIFO snapshot and cursor repair");
+        trace.NextBot = 6;
+        Check(queue.Enqueue(trace) && queue.Count == 64, "unfinished work requeues with original deadline");
+        Check(!queue.TryDequeue(1, out _) && queue.Count == 0 && queue.Expired == 64, "exact deadline expires even requeued work");
+        Check(!queue.Enqueue(new BulletTrace { Deadline = double.NaN }), "NaN deadline rejected");
+        Check(!queue.Enqueue(new BulletTrace { Deadline = double.PositiveInfinity }), "infinite trace rejected");
+        Check(!queue.Enqueue(new BulletTrace { Deadline = 2, NextBot = -1 }), "invalid cursor rejected");
+        Check(!queue.Enqueue(new BulletTrace { Deadline = 2, To = new Vector3(float.NaN) }), "invalid geometry rejected");
+        Check(queue.Enqueue(new BulletTrace { Deadline = 2, NextBot = 1 }), "queue reusable after overload");
+        queue.RemovedBotAt(1); // 尚未经过的成员被移除时无需回退。
+        Check(queue.TryDequeue(1.5, out trace) && trace.NextBot == 1, "unvisited removal does not decrement cursor");
+    }
+
+    /// <summary>玩家连射和霰弹的工作量受全局预算限制，低帧率和暂停不补跑欠账。</summary>
+    private static void PlayerEventBudgets()
+    {
+        foreach (int fps in new[] { 30, 60, 144 }) // 比较不同帧率下同一秒内的固定几何工作上限。
+        {
+            var geometry = new WorkBudget(6000, 256); // 与真实弹道消费使用相同参数。
+            for (int frame = 0; frame < fps; frame++) // 模拟队列一直有工作。
+            {
+                int granted = 0; // 单帧不允许超过二百五十六次。
+                while (geometry.TryTake((double)frame / fps, frame)) granted++; // 持续申请直到额度用尽。
+                Check(granted <= 256, "near-bullet per-frame budget");
+            }
+            Check(geometry.TotalUsed <= 6256 && geometry.TotalUsed >= 6000, "geometry total independent of FPS");
+            Check(geometry.TryTake(100, fps, 256) && !geometry.TryTake(100, fps), "pause cannot accumulate extra geometry burst");
+        }
+        var broadcast = new WorkBudget(4, 1); // 告警的第一条立即放行，后续传播合并。
+        Check(broadcast.TryTake(0, 0) && !broadcast.TryTake(0, 0), "shotgun pellets share single broadcast");
+        Check(!broadcast.TryTake(0.1, 1) && broadcast.TryTake(0.25, 2), "friend alert limited to four per second");
+        Check(broadcast.TryTake(100, 3) && !broadcast.TryTake(100, 3), "friend alert does not catch up after pause");
+    }
+
+    /// <summary>连续危险中即使移动、停留和重规划交替发生，也只提交一次压低姿态。</summary>
+    private static void PostureDangerStorm()
+    {
+        foreach (int fps in new[] { 30, 60, 144 }) // 姿态写入次数不能随帧率和连续事件数量增长。
+        {
+            var posture = new PosturePolicy();
+            float nativePose = 0.9f;
+            posture.Acquire(nativePose, 0);
+            Check(posture.TryApply(BehaviorState.Evade, true, false, false, nativePose, 0, out float target) && target == 0, "first danger crouches immediately");
+            nativePose = target; // 模拟已提交给原生的目标值，不模拟动画插值。
+            for (int frame = 1; frame <= fps * 5; frame++) // 覆盖五秒连射与交替的掩体到达条件。
+                Check(!posture.TryApply(frame % 2 == 0 ? BehaviorState.Evade : BehaviorState.Cover, true, false, frame % 3 == 0, nativePose, (double)frame / fps, out _), "repeated danger and route changes cannot stand up");
+            Check(!posture.TryApply(BehaviorState.Advance, false, false, false, nativePose, 5.1, out _), "safe advance waits before standing");
+            Check(!posture.TryApply(BehaviorState.Advance, false, false, false, nativePose, 5.84, out _), "ordinary rise not yet stable");
+            Check(posture.TryApply(BehaviorState.Advance, false, false, false, nativePose, 5.86, out target) && target == 0.9f, "stable advance stands once");
+            Check(!posture.TryApply(BehaviorState.Advance, false, false, false, target, 6, out _), "next path segment does not reapply standing");
+        }
+    }
+
+    /// <summary>掩体或行为状态短暂反复不能触发动画反转，持续的新意图才会生效。</summary>
+    private static void PostureStableIntent()
+    {
+        var posture = new PosturePolicy();
+        posture.Acquire(0.9f, 0);
+        for (int index = 1; index <= 50; index++) // 模拟两百毫秒以内反复进出掩体条件。
+            Check(!posture.TryApply(BehaviorState.Engage, false, false, index % 2 == 1, 0.9f, index * 0.1, out _), "short cover flicker cannot crouch");
+        Check(!posture.TryApply(BehaviorState.Cover, false, false, true, 0.9f, 6, out _), "new cover intention starts timer");
+        Check(!posture.TryApply(BehaviorState.Cover, false, false, true, 0.9f, 6.749, out _), "cover posture waits full window");
+        Check(posture.TryApply(BehaviorState.Engage, false, false, true, 0.9f, 6.75, out float target) && target == 0, "same cover intent survives behavior-state change");
+        Check(!posture.TryApply(BehaviorState.Search, false, false, false, 0, 7, out _), "brief search does not stand immediately");
+        Check(!posture.TryApply(BehaviorState.Engage, false, false, true, 0, 7.2, out _), "return to cover cancels pending rise");
+        Check(!posture.TryApply(BehaviorState.Search, false, false, false, 0, 8, out _), "new departure restarts full window");
+        Check(posture.TryApply(BehaviorState.Search, false, false, false, 0, 8.75, out target) && target == 0.9f, "stable departure eventually restores mobile posture");
+        Check(posture.TryApply(BehaviorState.Evade, true, false, false, 0.9f, 8.76, out target) && target == 0, "new hit bypasses ordinary posture hold");
+    }
+
+    /// <summary>层交接不无条件恢复旧姿态，不停止已经属于原生的新姿态。</summary>
+    private static void PostureOwnershipHandoff()
+    {
+        var posture = new PosturePolicy();
+        posture.Acquire(0.9f, 0);
+        Check(!posture.TryRelease(0.9f, out _), "unmodified posture requires no restoration");
+        posture.Acquire(0.9f, 1);
+        Check(posture.TryApply(BehaviorState.Evade, true, false, false, 0.9f, 1, out float target), "owned danger posture written");
+        Check(posture.TryRelease(target, out float restored) && restored == 0.9f, "own unchanged target restores original once");
+        Check(!posture.TryRelease(target, out _), "repeated layer stop does not restore again");
+        Check(!posture.TryApply(BehaviorState.Evade, true, false, false, 0.9f, 2, out _), "released layer cannot write more posture");
+        posture.Acquire(0.9f, 3);
+        posture.TryApply(BehaviorState.Evade, true, false, false, 0.9f, 3, out _);
+        Check(!posture.TryRelease(0.4f, out _), "new native posture is not overwritten by old saved target");
+        posture.Acquire(0, 4);
+        Check(!posture.TryApply(BehaviorState.Evade, true, false, false, 0, 4, out _), "already crouched native target stays untouched");
+        Check(!posture.TryRelease(0, out _), "no ownership of preexisting crouch");
+    }
+
+    /// <summary>原生恢复保持低姿态，自有卧姿退出产生的目标改变可被统一控制器识别。</summary>
+    private static void PostureRecoveryAndProne()
+    {
+        var posture = new PosturePolicy();
+        posture.Acquire(0.9f, 0);
+        posture.TryApply(BehaviorState.Evade, true, false, false, 0.9f, 0, out _);
+        Check(!posture.TryApply(BehaviorState.Recover, false, true, false, 0, 6, out _), "healing does not stand after danger ends");
+        Check(!posture.TryApply(BehaviorState.Advance, false, true, false, 0, 6.2, out _), "running recovery overrides movement posture");
+        posture.ResumeAfterProne(0.4f); // 原生 BotLay 结束卧姿时会把过低的目标抬高。
+        Check(posture.TryApply(BehaviorState.Evade, true, false, false, 0.4f, 7, out float target) && target == 0, "prone exit can return to stable danger crouch");
+        Check(!posture.TryApply(BehaviorState.Evade, true, false, false, 0, 7.1, out _), "prone resynchronization is not repeated every frame");
+        Check(posture.TryRelease(0, out float restored) && restored == 0.9f, "prone exit preserves original restoration target");
+        posture.ResumeAfterProne(0.4f);
+        Check(!posture.TryApply(BehaviorState.Evade, true, false, false, 0.4f, 8, out _), "prone exit cannot reacquire released layer");
+    }
+
+    /// <summary>掩体边缘小幅漂移不会循环起步，真实离开或新掩体仍能及时重置。</summary>
+    private static void CoverArrivalBoundaries()
+    {
+        var arrival = new CoverArrival();
+        Check(!arrival.Update(true, 1.45f), "outside enter threshold not arrived");
+        Check(arrival.Update(true, 1.44f), "exact enter threshold arrives");
+        for (int index = 0; index < 1000; index++) // 复現避险和移动分支逐帧读取同一个阈值的情况。
+            Check(arrival.Update(true, index % 2 == 0 ? 1.43f : 1.45f), "cover boundary jitter preserves arrival");
+        Check(arrival.Update(true, 3.24f), "exact leave threshold still arrived");
+        Check(!arrival.Update(true, 3.241f), "real departure releases arrival");
+        Check(!arrival.Update(true, 2), "outside enter threshold cannot instantly reenter");
+        Check(arrival.Update(true, 1), "return near cover arrives again");
+        arrival.Reset();
+        Check(!arrival.Update(true, 2), "new cover does not inherit old arrival");
+        arrival.Update(true, 1);
+        Check(!arrival.Update(false, 1) && !arrival.Update(true, 2), "expired cover clears hysteresis");
+        foreach (float invalid in new[] { float.NaN, float.PositiveInfinity, -1f }) // 非法位置不能缓存为已经安全到达。
+            Check(!arrival.Update(true, invalid), "invalid cover distance rejected");
+    }
+
+    /// <summary>非法值、无控制权和原生状态不能把姿态写进游戏执行器。</summary>
+    private static void PostureInvalidInputs()
+    {
+        var posture = new PosturePolicy();
+        Check(!posture.TryApply(BehaviorState.Evade, true, false, false, 0.9f, 0, out _), "no lease means no posture write");
+        posture.Acquire(0.9f, 0);
+        Check(!posture.TryApply(BehaviorState.Native, true, false, false, 0.9f, 1, out _), "native state bypasses even old danger");
+        Check(!posture.TryApply(BehaviorState.Evade, true, false, false, float.NaN, 1, out _), "invalid native target rejected");
+        Check(!posture.TryApply(BehaviorState.Evade, true, false, false, 0.9f, double.NaN, out _), "invalid time cannot bypass settling");
+        Check(!posture.TryApply(BehaviorState.Evade, true, false, false, 0.9f, double.PositiveInfinity, out _), "infinite time rejected");
+        posture.Acquire(float.NaN, 2);
+        Check(posture.TryApply(BehaviorState.Evade, true, false, false, 0.9f, 2, out float target) && target == 0, "invalid saved target uses finite fallback");
+        Check(!posture.TryRelease(float.NaN, out _), "invalid current target not restored");
     }
 
     /// <summary>构造不依赖 Unity 的队列样本。</summary>
