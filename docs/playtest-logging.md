@@ -1,6 +1,6 @@
-# 0.1.3 实测日志说明
+# 0.1.4 实测日志说明
 
-关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.3`；0.1.3 新增姿态写入与恢复字段，玩家范围与枪弹危险字段从 0.1.2 起提供。
+关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.4`；本版新增真实移动进度、查询坐标、控制恢复、限流排序与动作子阶段，姿态字段从 0.1.3 起提供。
 
 ## 实测步骤
 
@@ -16,7 +16,7 @@
 | 日志事件 | 能证明什么 | 判断边界 |
 | --- | --- | --- |
 | `START / CONFIG` | 插件进入初始化、实际 DLL 标识与配置 | 不代表初始化成功 |
-| `PATCH_APPLIED / READY` | 本插件拥有的补丁目标与层注册结果；预期十一个方法 | 包含 `BotOwner.OnGetHit` 与 `Shot.Update`；不代表已经收到 Bot 回调 |
+| `PATCH_APPLIED / READY` | 基础十一个方法；AI Limit 适配成功时十二个 | 以 `expectedMethods` 核对；初始化不代表已执行行为 |
 | `PLAYER_RULES` | 本版运行模式、距离、危险时长和 Boss 范围 | `mode=local-human-only` 是固定模式，没有默认扩大至 AI 或远程玩家 |
 | `PLAYER_SCOPE_ENTERED / PLAYER_SCOPE_LEFT` | 从真人线索激活或交还原生的边沿 | 直接受击也可直接进入 `Evade`，不必先出现 ENTERED |
 | `PLAYER_DANGER` | 玩家枪弹危险已保存且设置避险状态 | `kind=hit/near-bullet/ally-hit`；实际动作仍看 `ACTION_ENTERED` |
@@ -33,9 +33,15 @@
 | `STATE_CHANGED` | 高层选择了新状态与当时条件 | 尚不能证明 BigBrain 采用了动作 |
 | `CONTROL_CLAIMED / ACTION_ENTERED` | 实际取得控制权并进入对应动作分支 | 不代表移动已到达或治疗已完成 |
 | `CONTROL_RELEASED` | 自有动作退出或被其他层抢占 | 结合状态判断正常交接还是反复切换 |
+| `CONTROL_WAITING` | 有接管资格但持续未获得控制，包含 `selected/nativeLayer/grenade` | 原生高优先级行为可以正常阻止接管，不自动等于故障 |
+| `AI_LIMIT_COMPAT / AI_LIMIT_PRIORITY` | 可选适配启用及玩家情境对象被提高活动排序 | 不改变数量上限，不证明已激活；激活仍受原插件检查周期影响 |
 | `SIGHT_CHANGED / SOUND_SAVED / MEMORY_EXPIRED` | 感知边沿、声音入库与旧目标记忆失效 | 视觉回调总量见 `VisionSaved` |
 | `SOUND_OUT_OF_RANGE / SEARCH_FINISHED` | 声音调查点超距被过滤，或调查因到期/完成/超距而结束 | 超距声音不删除已有视觉记忆；结束自有搜索不等于已经证明原生巡逻恢复 |
 | `QUERY_SUCCEEDED / MOVE_STARTED` | 完整查询通过、路径已提交原生移动器 | 路径提交不等于最终到达 |
+| `MOVE_PROGRESS / MOVE_ARRIVED` | 实际位置发生变化，或走到经导航验证的当前段终点 | `final=False` 只是中间段；观察完整线索距离变化及后续段 |
+| `SEARCH_RETRY / SEARCH_FINISHED` | 有期限的失败重试，以及 `reached/failed` 最终计数 | `area-checked` 为完成，`unreachable` 为失败退出，不再混称候选耗尽 |
+| `DANGER_PRONE_SKIPPED` | 已无验证掩体但卧姿检查未提交，含贴脸、已卧姿或原生阻止 | 不能把每条跳过记录都当成错误 |
+| `ACTION_SLOW` | 两毫秒以上的动作子调用，含阶段、Bot、状态与耗时 | 墙钟时间含同步原生调用、GC 或调度停顿；明细仍限频 |
 | `QUERY_FAILED / QUERY_REJECTED / STUCK` | 查询失败原因、入队拒绝或移动无进展 | 单次找不到掩体不一定是缺陷，应看重复次数及场景 |
 | `SHOT_BLOCKED / SHOT_EXPIRED` | 实体/人员阻挡，或射击请求等待到期 | 不能只看 `blockedShots` 判定 Bot 无法射击 |
 | `SHOT_NATIVE_RESULT` | 本插件放行后，原生新连射调用返回接受或拒绝 | 接受不等于命中、击杀，也不是逐发弹药计数 |
@@ -56,6 +62,10 @@
 - `bulletChecks` 是近弹候选筛选总数，包含失活/非敌对候选的过滤；`bulletPending` 上限 64，`bulletDropped/bulletExpired` 增长意味着部分近弹通知被舍弃，直接命中不经过该队列。
 - `allyAlertsSuppressed` 是合并的受击广播次数，不是漏判直接受害者的次数；`hitEnabled/bulletEnabled` 正常为 `True`。
 - `PoseChanged/PoseRestored` 统计实际调用姿态接口的次数。连续近弹与路径重规划不应导致 `target=0.00/0.90` 高频交替；普通意图需稳定 0.75 秒，真实新危险可立即压低。判读时区分同一 Bot 与不同 Bot 的事件，结合 `CONTROL_RELEASED/CLAIMED` 判断控制交接。
+- `CONTROL_CLAIMED reason=selected-action-resume` 和 `ControlResumed` 表示 BigBrain 实际执行本动作时恢复了租约；不能从 SafetyTick 或外部限流回调强行接管。
+- `QUERY_FAILED` 新增 `nav-source/path-source/path-length/path-endpoint`，原 `path-bounds` 保留为旧版计数兼容。明细包含查询种类、候选序号、原始/投影/起点坐标、路径长度和 NavMesh 状态；失败时可能保留最后尝试的状态，需与原因及候选序号一起看。坐标均来自事件快照或本 Bot，不用于隐藏目标实时跟踪。
+- `RouteSegment` 对照 `paths` 可检查缓存复用；`SearchRetry` 最多每个搜索区域一次额外轮次，新区域或重新接管会重建搜索会话。候选尝试及请求失败不是独立 Bot 数量。
+- `TIMING` 新增 `ActionAim/ActionAimClear/ActionSearch/ActionMove/ActionEvade/ActionRecovery/ActionPosture`。现在 `ActionTotalMs` 是拆分后的父阶段剩余独占成本，不能单独与旧版整个 Action 阶段比较；累计总量或同一帧全部独占阶段可相加，独立峰值不能相加。
 - `SOUND_SAVED` 的 `kind=gunshot/step`、`band=Close/Search`、`distance/error/ttl` 分别用于核对来源、枪声距离段、事件距离、定位半径与寿命；脚步的 `band` 字段不代表套用枪声分段。120 米外枪声会增加 `FarGunshotIgnored`。
 - `Deactivated/Reactivated` 统计活动边沿；`ResourceReleased` 统计真正消费清理责任的次数，包括自有控制与原生层射击请求，因此不要求它与 `ControlReleased` 相等。稳定停用期不应持续增加这些计数。
 - `DecisionServed` 为实际开始的到期决策数，`DecisionForced` 为超出 40% 软阈值后执行的保障次数，`DecisionDelayed` 为迟到超过 100 毫秒的执行次数。

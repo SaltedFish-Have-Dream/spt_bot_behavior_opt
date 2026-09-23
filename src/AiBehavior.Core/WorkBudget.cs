@@ -39,7 +39,7 @@ public sealed class WorkBudget
     }
 }
 
-public enum QueryKind { Move, Cover, Shot }
+public enum QueryKind { Move, Cover, Shot, Search }
 
 /// <summary>带 Bot 生命周期与动作代次的请求，结果不允许跨动作复用。</summary>
 public readonly struct WorkRequest

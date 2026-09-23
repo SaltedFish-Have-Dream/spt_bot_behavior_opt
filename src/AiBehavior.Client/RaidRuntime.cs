@@ -9,6 +9,34 @@ using UnityEngine;
 
 namespace AiBehavior.Client;
 
+/// <summary>值类型动作计时区间，不创建逐帧委托或装箱；慢调用另留匿名 Bot 证据。</summary>
+internal readonly struct ActionMeasurement : IDisposable
+{
+    private readonly RaidRuntime _runtime;
+    private readonly BotAgent _agent;
+    private readonly WorkPhase _phase;
+    private readonly long _start;
+
+    /// <summary>开始细分动作的嵌套独占计时。</summary>
+    internal ActionMeasurement(RaidRuntime runtime, BotAgent agent, WorkPhase phase)
+    {
+        _runtime = runtime;
+        _agent = agent;
+        _phase = phase;
+        _start = runtime.BeginWork(phase);
+    }
+
+    /// <summary>包含异常退出也正确闭合区间，仅两毫秒以上调用请求限频日志。</summary>
+    public void Dispose()
+    {
+        _runtime.Charge(_start); // 阶段总量按嵌套独占归属，不重复累计。
+        if (_start < 0) return; // 菜单或最终清场不属于局内测量。
+        double milliseconds = (Stopwatch.GetTimestamp() - _start) * 1000d / Stopwatch.Frequency; // 墙钟耗时含同步原生调用，不等于纯 CPU 时间。
+        if (milliseconds < 2 || !_runtime.Diagnostics.Record(DiagnosticEvent.ActionSlow, _agent, Time.time)) return; // 正常帧不创建字符串，慢帧仍服从全局限频。
+        _runtime.Diagnostics.Write("ACTION_SLOW", _agent.Id, Time.time, FormattableString.Invariant($"phase={_phase} elapsedMs={milliseconds:F3} state={_agent.State} controlled={_agent.Controlled}")); // 可与 TIMING 和控制交接关联。
+    }
+}
+
 /// <summary>战局内共享调度器；所有入口均在 Unity 主线程执行。</summary>
 public sealed class RaidRuntime : IDisposable
 {

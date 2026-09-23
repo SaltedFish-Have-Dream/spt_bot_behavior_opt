@@ -41,14 +41,6 @@ public static class PlayerThreatPolicy
         return active && playerAlive && (playerDanger || (!otherTarget && (playerTarget || playerClue)));
     }
 
-    /// <summary>每次只向快照方向移动十二米，避免远声源发起一次超长导航请求。</summary>
-    public static Vector3 NextSearchStep(Vector3 origin, Vector3 target)
-    {
-        Vector3 delta = target - origin; // 只能传入事件快照或合法视觉位置。
-        float length = delta.Length(); // 步长限制不会随 PMC 等级扩大。
-        return length <= 12 ? target : origin + delta * (12 / length);
-    }
-
     /// <summary>计算人物与实际弹道线段的最近距离，线段终点必须裁剪到真实碰撞位置。</summary>
     public static float SegmentDistanceSquared(Vector3 point, Vector3 from, Vector3 to)
     {

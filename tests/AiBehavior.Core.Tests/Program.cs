@@ -5,7 +5,7 @@ using AiBehavior.Core;
 namespace AiBehavior.Core.Tests;
 
 /// <summary>不依赖游戏进程的行为回归检查，失败返回非零退出码。</summary>
-internal static class Program
+internal static partial class Program
 {
     private static int _assertions;
 
@@ -53,7 +53,14 @@ internal static class Program
             PostureRecoveryAndProne(); // 检查恢复及原生卧姿退出后的姿态衔接。
             CoverArrivalBoundaries(); // 检查掩体边界小幅位移不会反复触发起步。
             PostureInvalidInputs(); // 检查非法时间、姿态和无控制状态不提交动作。
-            Console.WriteLine($"PASS: 39 scenarios, {_assertions} assertions."); // 输出实际验证数量。
+            RouteAroundObstacle(); // 检查路线保留转角和高度，不沿直线穿墙。
+            RouteCacheAndInvalidation(); // 检查缓存寿命、偏离、失败清理和错误输入。
+            RouteValidationReasons(); // 检查源点、终点、绕路和不完整路径独立归因。
+            RouteManyCorners(); // 检查不同曲折路线的步长、完整覆盖和容量上限。
+            SearchFailureRetry(); // 检查失败与实际到达分开、有期限且仅一次重试。
+            ActivityPriorityKeepsLimit(); // 检查玩家情境排序优先但原数量限制不变。
+            ActionTimingBreakdown(); // 检查动作子阶段不会双计总耗时。
+            Console.WriteLine($"PASS: 46 scenarios, {_assertions} assertions."); // 输出实际验证数量。
             return 0;
         }
         catch (Exception exception) // 明确报告失败而不是继续生成包。
@@ -551,15 +558,19 @@ internal static class Program
     {
         Vector3 target = new(100, 30, -50);
         Vector3 position = Vector3.Zero;
-        for (int step = 0; step < 20 && position != target; step++) // 任意斜向目标都应在有限次数到达。
+        var route = new SearchRoute();
+        Check(route.Load(new[] { position, target }, position, target, true, 0, out _), "valid solved slope accepted");
+        var segment = new Vector3[SearchRoute.Capacity + 2];
+        for (int step = 0; step < 20 && position != target; step++) // 任意斜向已求解路线都应在有限次数到达。
         {
-            Vector3 next = PlayerThreatPolicy.NextSearchStep(position, target); // 调用生产路径分段规则。
+            Check(route.Take(position, step * 0.1, segment, out int count, out _), "cached route segment available");
+            Vector3 next = segment[count - 1]; // 调用实际生产路线消费规则。
             Check(Vector3.Distance(position, next) <= 12.00002f, "segment bounded by twelve meters");
             Check(Vector3.Distance(next, target) < Vector3.Distance(position, target), "segment makes progress without overshoot");
             position = next; // 下一次规划以实际新位置为起点。
         }
         Check(position == target, "segmented search reaches snapshot");
-        Check(PlayerThreatPolicy.NextSearchStep(target, target) == target, "zero distance remains finite");
+        Check(!route.Take(target, 2, segment, out _, out _), "completed route cannot repeat old movement");
         Check(PlayerThreatPolicy.SearchLifetime(0) == 12 && PlayerThreatPolicy.SearchLifetime(120) == 45 && PlayerThreatPolicy.SearchLifetime(1000) == 45, "search lifetime bounded at both ends");
         var danger = new PlayerDanger();
         Check(danger.Observe(true, new Vector3(1000, 0, 0), 1, PlayerThreatPolicy.SearchLifetime(1000)) && danger.IsActive(1), "direct distant hit bypasses sound radius");
