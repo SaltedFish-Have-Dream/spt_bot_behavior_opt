@@ -7,6 +7,10 @@ public sealed class PluginOptions
 {
     public readonly bool Enabled;
     public readonly bool ManageScavs;
+    public readonly bool CoverFailureMemory;
+    public readonly bool SuppressionResponse;
+    public readonly bool SearchObservation;
+    public readonly bool CoverCommitment;
     public readonly int MinimumLevel;
     public readonly int MaximumLevel;
     public readonly double MainThreadMilliseconds;
@@ -24,6 +28,10 @@ public sealed class PluginOptions
     {
         Enabled = config.Bind("General", "Enabled", true, "启用拟真行为。更改后重启游戏。").Value;
         ManageScavs = config.Bind("General", "ManageScavs", true, "普通和狙击 Scav 使用固定模板；Boss、护卫与其他特殊角色保持原生。").Value;
+        CoverFailureMemory = config.Bind("Tactics", "CoverFailureMemory", true, "在已到达的掩体处被玩家命中后，十二秒内跳过该位置两米内的候选；固定四项。重启生效。").Value;
+        SuppressionResponse = config.Bind("Tactics", "SuppressionResponse", true, "玩家命中与近弹形成衰减压力；到达掩体、压力回落且满足视线和武器条件时可还击。关闭则保留旧版五秒内避险停火。重启生效。").Value;
+        SearchObservation = config.Bind("Tactics", "SearchObservation", true, "沿已验证路线进入线索十八米路径范围时短暂停看，每区域最多两次，不延长线索。重启生效。").Value;
+        CoverCommitment = config.Bind("Tactics", "CoverCommitment", true, "普通视线波动不打断已验证的掩体移动；危险、恢复、失效与原生抢占仍可中断。重启生效。").Value;
         MinimumLevel = config.Bind("PMC", "MinimumLevel", 1, new ConfigDescription("PMC 成长起点。", new AcceptableValueRange<int>(1, 999))).Value;
         MaximumLevel = config.Bind("PMC", "MaximumLevel", 60, new ConfigDescription("PMC 成长饱和点，并非游戏等级上限。", new AcceptableValueRange<int>(2, 1000))).Value;
         MainThreadMilliseconds = config.Bind("Performance", "DecisionBudgetMs", 0.5f, new ConfigDescription("每帧高层决策和查询的软时间片，不含原生运动与动画。", new AcceptableValueRange<float>(0.1f, 5f))).Value;

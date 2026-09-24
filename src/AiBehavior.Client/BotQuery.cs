@@ -66,17 +66,19 @@ internal sealed class BotQuery
         if (_stage == 0) // 首先在当前位置附近收集最多六个候选。
         {
             if (!runtime.Overlaps.TryTake(now, frame)) return false; // 额度不足时保持原截止时间。
-            Gather(GameAdapter.Position(request.Threat)); // 内部仅一次 NonAlloc 重叠查询。
+            Gather(GameAdapter.Position(request.Threat), now); // 内部仅一次 NonAlloc 重叠查询，失效点在便宜的粗选阶段排除。
             _stage = 1; // 下一步单独领取导航采样额度。
             return false;
         }
         if (_candidate >= Math.Min(_count, request.Kind == QueryKind.Cover ? 2 : request.Kind == QueryKind.Search ? 4 : 1)) return Fail(now); // 掩体最多两个、搜索最多四个候选。
         if (_stage == 1) // 导航投影避免把目标设在墙内或悬空位置。
         {
+            if (request.Kind != QueryKind.Search && _agent.RejectsCover(_candidates[_candidate], now)) return NextCandidate(now, request, "cover-rejected"); // 掩体查询和掩体移动都在采样前排除新失效点。
             if (!runtime.Samples.TryTake(now, frame)) return false; // 位置采样也计入全局预算。
             float radius = request.Kind == QueryKind.Search && _candidate == 1 ? 4 : 1.5f; // 只有第二次搜索候选允许一次有限扩采样。
             if (!NavMesh.SamplePosition(_candidates[_candidate], out NavMeshHit navHit, radius, NavMesh.AllAreas) || Mathf.Abs(navHit.position.y - _candidates[_candidate].y) > 3) return NextCandidate(now, request, "nav-sample"); // 不把更远楼层当作就近目标。
             _point = navHit.position; // 保存有效导航坐标。
+            if (request.Kind != QueryKind.Search && _agent.RejectsCover(_point, now)) return NextCandidate(now, request, "cover-rejected"); // 投影不能绕过原受击位置两米的短期封锁。
             _stage = request.Kind == QueryKind.Cover ? 2 : 3; // 普通移动不增加掩体射线。
             return false;
         }
@@ -115,6 +117,7 @@ internal sealed class BotQuery
         float limit = request.Kind == QueryKind.Cover ? 40 : _agent.Role == BotRole.Scav ? 35 : 80; // 各类移动有明确距离上限。
         if (_length > limit) return NextCandidate(now, request, "path-length"); // 路径过长单独归类。
         if ((corners[corners.Length - 1] - _point).sqrMagnitude > 2.25f) return NextCandidate(now, request, "path-endpoint"); // 终点偏离单独归类。
+        if (request.Kind != QueryKind.Search && _agent.RejectsCover(_point, now)) return NextCandidate(now, request, "cover-rejected"); // 路径计算后再次拒绝失效掩体，普通 Move 同样用于掩体重规划。
         _agent.QuerySucceeded(request, _point, corners, now); // 写入前再次由 Agent 核对动作代次。
         return true;
     }
@@ -126,12 +129,12 @@ internal sealed class BotQuery
     }
 
     /// <summary>复用原生当前掩体，并从一次局部查询中粗选最近的候选。</summary>
-    private void Gather(Vector3 threat)
+    private void Gather(Vector3 threat, double now)
     {
         _count = 0; // 每次请求清空候选计数。
         Vector3 origin = _agent.Owner.Position; // 所有候选限制在当前位置附近。
         CustomNavigationPoint? native = _agent.Owner.Memory.CurCustomCoverPoint; // 只读取已有位置，不触发原生全图搜索。
-        if (native != null) AddCandidate(native.Position, origin); // 当前原生掩体也必须经过后续遮挡和路径验证。
+        if (native != null) AddCandidate(native.Position, origin, now); // 当前原生掩体也必须经过失效点、遮挡和路径验证。
         int count = Physics.OverlapSphereNonAlloc(origin, 12f, _colliders, LayersMaskController.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore); // 结果上限三十二，满载不扩容。
         for (int index = 0; index < count; index++) // 对固定缓冲进行便宜的边界筛选。
         {
@@ -146,14 +149,15 @@ internal sealed class BotQuery
             float extent = Mathf.Abs(away.x) * bounds.extents.x + Mathf.Abs(away.z) * bounds.extents.z; // 估计该方向的包围盒半径。
             Vector3 point = bounds.center + away * (extent + 0.7f); // 留出 Bot 身体与墙面的距离。
             point.y = origin.y; // 最终高度由后续 NavMesh 投影确认。
-            AddCandidate(point, origin); // 维护最多六个近处候选。
+            AddCandidate(point, origin, now); // 维护最多六个近处候选，已知失效点不占候选名额。
         }
         Array.Clear(_colliders, 0, _colliders.Length); // 不让缓存跨查询强引用场景碰撞体。
     }
 
     /// <summary>小数组插入排序，稳定保留六个最近且不重复的位置。</summary>
-    private void AddCandidate(Vector3 point, Vector3 origin)
+    private void AddCandidate(Vector3 point, Vector3 origin, double now)
     {
+        if (_agent.RejectsCover(point, now)) { _agent.Runtime.Diagnostics.Count(DiagnosticEvent.CoverCandidateRejected); return; } // 只做四项平方距离，不为已知无效点花费射线或寻路。
         float distance = (point - origin).sqrMagnitude; // 粗选使用平方距离，不计算路线。
         if (distance < 0.64f || distance > 225 || !ThreatMemory.Finite(GameAdapter.Snapshot(point))) return; // 排除原地和越界候选。
         int slot = _count; // 新候选默认放在末尾。
@@ -172,6 +176,7 @@ internal sealed class BotQuery
     /// <summary>一个候选失败后转向下一个，耗尽候选时结束请求。</summary>
     private bool NextCandidate(double now, in WorkRequest request, string reason)
     {
+        if (reason == "cover-rejected") _agent.Runtime.Diagnostics.Count(DiagnosticEvent.CoverCandidateRejected); // 每个实际过滤候选都计数，即使后续候选成功也不丢失证据。
         _lastFailure = reason; // 保留最后一个候选实际失败原因，使用固定字符串避免高频分配。
         _candidate++; // 每次失败只前进，禁止回到同一候选无限重试。
         _stage = 1; // 下一个候选从独立导航采样开始。

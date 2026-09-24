@@ -14,6 +14,7 @@ public sealed class SearchRoute
     private Vector3 _head;
     private double _expires;
     public float Length { get; private set; }
+    public float RemainingLength { get; private set; }
 
     /// <summary>验证完整路径、投影起终点和有限绕路长度，成功后复制到固定缓存。</summary>
     public bool Load(ReadOnlySpan<Vector3> corners, Vector3 origin, Vector3 target, bool complete, double now, out string reason)
@@ -42,7 +43,7 @@ public sealed class SearchRoute
         _next = 1; // 第零点作为第一段起点。
         _head = corners[0]; // 后续切分都沿这条折线。
         _expires = now + 8; // 定期重新验证动态导航，读取不会续期。
-        Length = length; // 诊断保留完整路径长度。
+        Length = RemainingLength = length; // 缓存剩余折线长度，接触前停看不需要重新扫描路径。
         reason = "ok"; // 成功后才允许提交动作。
         return true;
     }
@@ -52,7 +53,7 @@ public sealed class SearchRoute
     {
         count = 0; // 失败不暴露旧段。
         final = false; // 缺路不等于已经到达。
-        if (_count < 2 || _next >= _count || output.Length < Capacity + 2 || !ThreatMemory.Finite(origin) || double.IsNaN(now) || double.IsInfinity(now) || now >= _expires || now < _expires - 8 || Vector3.DistanceSquared(origin, _head) > 2.25f) return false; // 调用方重新申请共享查询。
+        if (output.Length < Capacity + 2 || !CanTake(origin, now)) return false; // 调用方重新申请共享查询，停看不能复活到期路线。
         output[count++] = origin; // 原生移动器从实际位置开始。
         float remaining = StepLength; // 包含连接上次段终点的距离。
         float join = Vector3.Distance(origin, _head); // 容忍原生到达半径内的正常偏差。
@@ -68,11 +69,13 @@ public sealed class SearchRoute
                 _head = next; // 下一条边从当前末端开始。
                 _next++; // 该边只消费一次。
                 remaining -= distance; // 按路径长度扣减。
+                RemainingLength = Math.Max(0, RemainingLength - distance); // 与消费边同时更新，不新增逐帧遍历。
             }
             else // 长边沿边插值，保持在已验证折线上。
             {
                 _head += (next - _head) * (remaining / distance); // 截取剩余步长。
                 output[count++] = _head; // 当前段以插值点结束。
+                RemainingLength = Math.Max(0, RemainingLength - remaining); // 长边只扣本次实际消费的距离。
                 remaining = 0; // 同一调用不超出十二米。
             }
         }
@@ -80,11 +83,18 @@ public sealed class SearchRoute
         return count >= 2; // 原生接口不能接受单点移动。
     }
 
+    /// <summary>不消费路线地检查下一段是否可用，停看前必须先确认导航时效和起点。</summary>
+    public bool CanTake(Vector3 origin, double now)
+    {
+        return _count >= 2 && _next < _count && ThreatMemory.Finite(origin) && !double.IsNaN(now) && !double.IsInfinity(now) &&
+            now < _expires && now >= _expires - 8 && Vector3.DistanceSquared(origin, _head) <= 2.25f;
+    }
+
     /// <summary>路径失效、控制交接或候选变化时解除缓存。</summary>
     public void Clear()
     {
         _count = _next = 0;
-        _expires = Length = 0;
+        _expires = Length = RemainingLength = 0;
     }
 }
 

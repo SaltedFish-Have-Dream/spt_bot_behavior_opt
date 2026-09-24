@@ -1,6 +1,7 @@
 # 本地克隆的第三方参考仓库；保留 reference 下的说明与版本锁定文件。
 /reference/SAIN/
 /reference/BigBrain/
+/reference/SPT-Waypoints/
 /reference/spt_source_code/*/
 
 # .NET 编译产物、构建缓存与发布输出。

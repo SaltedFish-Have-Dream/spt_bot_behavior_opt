@@ -19,6 +19,7 @@ public struct DecisionInput
     public int ContextVersion;
     public bool PlayerDanger;
     public bool AdvanceAfterDanger;
+    public bool MovingToCover;
 }
 
 /// <summary>带动作承诺时间的有限策略，相同情境不重复抽取战术概率。</summary>
@@ -50,6 +51,7 @@ public sealed class DecisionPolicy
         if (input.PlayerDanger) next = BehaviorState.Evade; // 玩家中弹或近弹先避险，执行器不取消已经开始的原生恢复。
         else if (input.RecoveryRunning) next = BehaviorState.Recover; // 已开始的原生恢复不得被普通决策打断。
         else if (!input.HasClue) next = input.NeedsRecovery ? BehaviorState.Recover : BehaviorState.Native; // 无线索时交还巡逻或完成自救。
+        else if (input.MovingToCover && input.HasCover && !input.AtCover && input.CanMove) next = input.NeedsRecovery || input.LowHealth || State == BehaviorState.Disengage ? BehaviorState.Disengage : BehaviorState.Cover; // 先走完有效掩体路线，普通视线波动和新的战术抽签不能让 Bot 停在半路。
         else if (input.NeedsRecovery && (!input.Visible || input.AtCover)) next = BehaviorState.Recover; // 只在相对安全时开始恢复。
         else if (input.AdvanceAfterDanger && input.NeedsRecovery) next = input.HasCover && input.CanMove && !input.AtCover ? BehaviorState.Disengage : BehaviorState.Recover; // 缺弹或需治疗时不空手前压，恢复执行仍检查安全条件。
         else if (input.AdvanceAfterDanger && input.LowHealth) next = input.NeedsRecovery ? BehaviorState.Recover : BehaviorState.Observe; // 伤势严重且无恢复条件时不强制冲锋。
@@ -60,6 +62,7 @@ public sealed class DecisionPolicy
         else if (input.Visible) next = BehaviorState.Engage; // 其余可见交战维持当前射击窗口。
         else next = input.SoundOnly ? BehaviorState.Investigate : BehaviorState.Search; // 失去视觉后只搜索已有线索。
         bool urgent = input.PlayerDanger || State == BehaviorState.Evade || input.RecoveryRunning || !input.HasClue || State == BehaviorState.Native ||
+            ((!input.HasCover || !input.CanMove) && (State == BehaviorState.Cover || State == BehaviorState.Disengage)) || // 掩体失效或失去移动资格必须立即解除承诺。
             input.Visible != (State == BehaviorState.Observe || State == BehaviorState.Engage || State == BehaviorState.Cover) ||
             (State == BehaviorState.Observe && input.Reacted) || input.AtCover; // 关键条件变化不受普通动作承诺限制。
         if (next != State && (urgent || now >= _holdUntil)) // 普通战术切换需要满足最短持有时间。

@@ -60,7 +60,23 @@ internal static partial class Program
             SearchFailureRetry(); // 检查失败与实际到达分开、有期限且仅一次重试。
             ActivityPriorityKeepsLimit(); // 检查玩家情境排序优先但原数量限制不变。
             ActionTimingBreakdown(); // 检查动作子阶段不会双计总耗时。
-            Console.WriteLine($"PASS: 46 scenarios, {_assertions} assertions."); // 输出实际验证数量。
+            PressureEventMerging(); // 检查近弹与命中去重和直接命中升级。
+            PressureBurstAndQuiet(); // 检查连续近弹与五秒安静恢复。
+            PressureFrameRateIndependence(); // 检查标量衰减不依赖帧率。
+            PressureSourceAndHysteresis(); // 检查来源、非法时间与高压迟滞。
+            FailedCoverEvidenceAndExpiry(); // 检查失效证据、空间范围和到期。
+            FailedCoverCapacityAndStorm(); // 检查四项硬容量和高频替换。
+            FailedCoverInvalidAndClear(); // 检查非法候选、倒序命中与清理。
+            SearchObservationWindow(); // 检查停看不会逐帧续期。
+            SearchObservationLimits(); // 检查次数、冷却、空间进展与重新接管。
+            SearchObservationInterruptions(); // 检查危险抢占和即将过期的线索。
+            SearchPauseRouteIntegration(); // 检查停看不会消费或延长导航路线。
+            CoverCommitmentAcrossSightChanges(); // 检查普通条件变化不打断掩体路线。
+            CoverCommitmentEmergencyExit(); // 检查危险与恢复仍可打断承诺。
+            CoverMoveHandoffMatrix(); // 检查所有状态间的路线保留条件。
+            DefensiveFireAndDangerFlow(); // 检查压力、失效掩体和五秒推进的组合。
+            TacticalHotPathAllocations(); // 检查纯逻辑事件热循环的托管分配。
+            Console.WriteLine($"PASS: 62 scenarios, {_assertions} assertions."); // 输出实际验证数量。
             return 0;
         }
         catch (Exception exception) // 明确报告失败而不是继续生成包。

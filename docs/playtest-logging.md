@@ -1,6 +1,6 @@
-# 0.1.4 实测日志说明
+# 0.1.5 实测日志说明
 
-关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.4`；本版新增真实移动进度、查询坐标、控制恢复、限流排序与动作子阶段，姿态字段从 0.1.3 起提供。
+关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.5`；本版新增压力、掩体失效、搜索停看与掩体移动保持证据。真实移动进度、查询坐标、控制恢复、限流排序与动作子阶段从 0.1.4 起提供，姿态字段从 0.1.3 起提供。
 
 ## 实测步骤
 
@@ -18,6 +18,11 @@
 | `START / CONFIG` | 插件进入初始化、实际 DLL 标识与配置 | 不代表初始化成功 |
 | `PATCH_APPLIED / READY` | 基础十一个方法；AI Limit 适配成功时十二个 | 以 `expectedMethods` 核对；初始化不代表已执行行为 |
 | `PLAYER_RULES` | 本版运行模式、距离、危险时长和 Boss 范围 | `mode=local-human-only` 是固定模式，没有默认扩大至 AI 或远程玩家 |
+| `TACTICAL_RULES` | 四个战术开关及固定容量/时长配置 | 启动记录不代表对应行为已经执行 |
+| `PRESSURE_CHANGED` | 个人压力等级发生变化，含前后等级与当前值 | 只接受玩家个人命中/近弹，队友告警不加个人压力；明细限频可能省略中间等级 |
+| `COVER_INVALIDATED` | 到达自有掩体后遭玩家命中，失效点已撤销 | 不代表替代掩体已经找到，后续仍看查询与移动链路 |
+| `SEARCH_PAUSED` | 已开始一次接近线索时的有限停看，含时长、剩余路线和次数 | 每区域最多两次；不代表卡住，也不延长线索或路线寿命 |
+| `COVER_MOVE_KEPT` | 掩体族状态切换时保留同一有效移动路线 | 同状态持续移动不重复记录，不等于已到达 |
 | `PLAYER_SCOPE_ENTERED / PLAYER_SCOPE_LEFT` | 从真人线索激活或交还原生的边沿 | 直接受击也可直接进入 `Evade`，不必先出现 ENTERED |
 | `PLAYER_DANGER` | 玩家枪弹危险已保存且设置避险状态 | `kind=hit/near-bullet/ally-hit`；实际动作仍看 `ACTION_ENTERED` |
 | `DANGER_PRONE` | 无验证可用掩体后已调用原生合法卧姿 | 不能仅靠此日志证明模型姿态完成或保证不会被命中 |
@@ -61,6 +66,9 @@
 - `urgentPending/urgentExpired` 为紧急查询；`SUMMARY.pending/expired` 仍是普通查询，`shotPending/shotExpired` 为射击队列，三者分别判读。
 - `bulletChecks` 是近弹候选筛选总数，包含失活/非敌对候选的过滤；`bulletPending` 上限 64，`bulletDropped/bulletExpired` 增长意味着部分近弹通知被舍弃，直接命中不经过该队列。
 - `allyAlertsSuppressed` 是合并的受击广播次数，不是漏判直接受害者的次数；`hitEnabled/bulletEnabled` 正常为 `True`。
+- `PressureChanged/CoverInvalidated/SearchPaused/CoverMoveKept` 是上述真实行为边沿的累计数。短期压力清空只重置内部基准，不额外生成退出事件；后续新压力会从平静状态重新判读。
+- `CoverCandidateRejected` 是候选被失效记忆过滤的次数，包含粗选和导航阶段，后续请求成功也会保留；不是唯一掩体数或请求失败数。`QUERY_FAILED reason=cover-rejected` 仅代表请求最终因此失败。
+- `ShotPressureBlocked` 是实际接管的避险动作尚不满足掩体还击条件时的拒绝次数，包含高压、刚受击、无有效掩体/视线和功能关闭后的旧版停火规则。不是独立 Bot 数；还击仍须查看既有射击验证链路与 `SHOT_NATIVE_RESULT`。
 - `PoseChanged/PoseRestored` 统计实际调用姿态接口的次数。连续近弹与路径重规划不应导致 `target=0.00/0.90` 高频交替；普通意图需稳定 0.75 秒，真实新危险可立即压低。判读时区分同一 Bot 与不同 Bot 的事件，结合 `CONTROL_RELEASED/CLAIMED` 判断控制交接。
 - `CONTROL_CLAIMED reason=selected-action-resume` 和 `ControlResumed` 表示 BigBrain 实际执行本动作时恢复了租约；不能从 SafetyTick 或外部限流回调强行接管。
 - `QUERY_FAILED` 新增 `nav-source/path-source/path-length/path-endpoint`，原 `path-bounds` 保留为旧版计数兼容。明细包含查询种类、候选序号、原始/投影/起点坐标、路径长度和 NavMesh 状态；失败时可能保留最后尝试的状态，需与原因及候选序号一起看。坐标均来自事件快照或本 Bot，不用于隐藏目标实时跟踪。
