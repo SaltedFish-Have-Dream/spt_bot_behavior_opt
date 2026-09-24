@@ -73,12 +73,12 @@ internal sealed class BotQuery
         if (_candidate >= Math.Min(_count, request.Kind == QueryKind.Cover ? 2 : request.Kind == QueryKind.Search ? 4 : 1)) return Fail(now); // 掩体最多两个、搜索最多四个候选。
         if (_stage == 1) // 导航投影避免把目标设在墙内或悬空位置。
         {
-            if (request.Kind != QueryKind.Search && _agent.RejectsCover(_candidates[_candidate], now)) return NextCandidate(now, request, "cover-rejected"); // 掩体查询和掩体移动都在采样前排除新失效点。
+            if ((request.Kind == QueryKind.Cover || request.Kind == QueryKind.Move) && _agent.RejectsCover(_candidates[_candidate], now)) return NextCandidate(now, request, "cover-rejected"); // 仅掩体路线排除失效点，短距脱离和换位不属于掩体。
             if (!runtime.Samples.TryTake(now, frame)) return false; // 位置采样也计入全局预算。
             float radius = request.Kind == QueryKind.Search && _candidate == 1 ? 4 : 1.5f; // 只有第二次搜索候选允许一次有限扩采样。
             if (!NavMesh.SamplePosition(_candidates[_candidate], out NavMeshHit navHit, radius, NavMesh.AllAreas) || Mathf.Abs(navHit.position.y - _candidates[_candidate].y) > 3) return NextCandidate(now, request, "nav-sample"); // 不把更远楼层当作就近目标。
             _point = navHit.position; // 保存有效导航坐标。
-            if (request.Kind != QueryKind.Search && _agent.RejectsCover(_point, now)) return NextCandidate(now, request, "cover-rejected"); // 投影不能绕过原受击位置两米的短期封锁。
+            if ((request.Kind == QueryKind.Cover || request.Kind == QueryKind.Move) && _agent.RejectsCover(_point, now)) return NextCandidate(now, request, "cover-rejected"); // 投影不能绕过原受击位置两米的短期封锁。
             _stage = request.Kind == QueryKind.Cover ? 2 : 3; // 普通移动不增加掩体射线。
             return false;
         }
@@ -114,10 +114,10 @@ internal sealed class BotQuery
             _agent.QuerySucceeded(request, _point, corners, now); // 下一步沿缓存消费，不再按直线求中间点。
             return true;
         }
-        float limit = request.Kind == QueryKind.Cover ? 40 : _agent.Role == BotRole.Scav ? 35 : 80; // 各类移动有明确距离上限。
+        float limit = request.Kind == QueryKind.Escape || request.Kind == QueryKind.Reposition ? 12 : request.Kind == QueryKind.Cover ? 40 : _agent.Role == BotRole.Scav ? 35 : 80; // 新换位只接受完整的短路线。
         if (_length > limit) return NextCandidate(now, request, "path-length"); // 路径过长单独归类。
         if ((corners[corners.Length - 1] - _point).sqrMagnitude > 2.25f) return NextCandidate(now, request, "path-endpoint"); // 终点偏离单独归类。
-        if (request.Kind != QueryKind.Search && _agent.RejectsCover(_point, now)) return NextCandidate(now, request, "cover-rejected"); // 路径计算后再次拒绝失效掩体，普通 Move 同样用于掩体重规划。
+        if ((request.Kind == QueryKind.Cover || request.Kind == QueryKind.Move) && _agent.RejectsCover(_point, now)) return NextCandidate(now, request, "cover-rejected"); // 路径计算后再次拒绝失效掩体，普通 Move 同样用于掩体重规划。
         _agent.QuerySucceeded(request, _point, corners, now); // 写入前再次由 Agent 核对动作代次。
         return true;
     }

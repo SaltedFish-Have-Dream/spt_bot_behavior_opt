@@ -29,6 +29,9 @@ internal sealed class BotAgent : IDisposable
     private readonly SuppressionPressure _pressure = new();
     private readonly FailedCoverMemory _failedCovers = new();
     private readonly SearchPacing _searchPacing = new();
+    private readonly EscapeFallback _escapeFallback = new();
+    private readonly BlockedShotFeedback _blockedShots = new();
+    private readonly SearchFailureMemory _failedSearch = new();
     private PressureLevel _reportedPressure;
     private double _nextSoundSnapshot;
     private double _nextGunshotSnapshot;
@@ -277,7 +280,8 @@ internal sealed class BotAgent : IDisposable
         UpdatePressure(now); // 新命中或连续近弹立即更新等级。
         if (reason == "hit") RejectHitCover(now); // 只有玩家直接命中能封锁已到达的掩体。
         _searchPacing.Cancel(); // 紧急危险不等待搜索停看结束。
-        if (entering) { _coverUnavailable = false; _retryAt = now; } // 新一轮危险允许尽快查询一次局部掩体。
+        if (entering) { _coverUnavailable = false; _retryAt = now; _escapeFallback.StartDanger(); } // 新一轮危险允许尽快查询一次局部掩体和有限撤离。
+        _blockedShots.ClearStreak(); // 避险期间不继承交战时的连续挡枪记录。
         Memory.Observe(new Observation(Runtime.LocalPlayer.ProfileId, ObservationSource.Danger, GameAdapter.Snapshot(estimate), now, _playerDanger.SearchUntil, error), now); // 保存有限的接近区域。
         Participating = true; // 受击和近弹不等待普通调度才激活行为层。
         _policy.Reset(BehaviorState.Evade); // 紧急行为绕过普通动作承诺。
@@ -304,6 +308,7 @@ internal sealed class BotAgent : IDisposable
         Gate.Reset(); // 新接敌不能继承上次玩家的射击就绪。
         _searchPacing.Cancel(); // 交回 AI 互战后不保留活动停看窗口，但同区域次数不会退款。
         _pressure.Clear(); // 玩家情境退出后不继续保留受压行为。
+        _blockedShots.Clear(); // 下次独立接敌可以重新判断枪线。
         _reportedPressure = PressureLevel.Calm; // 新玩家情境的第一次高压应重新形成日志边沿。
     }
 
@@ -340,7 +345,7 @@ internal sealed class BotAgent : IDisposable
         bool playerClue = Memory.TryGetLatest(now, out _) || _lastGunshot.ExpiresAt > now || _playerDanger.CanAdvance(now); // 独立保留枪声原寿命，仍不访问隐藏坐标。
         if (!PlayerThreatPolicy.ShouldManage(active, playerAlive, enemy != null && !playerTarget, playerTarget, playerClue, _playerDanger.IsActive(now))) // AI 互战只有玩家紧急危险可短时打断。
         {
-            if (!playerAlive && (playerClue || _playerDanger.SearchUntil > 0)) { Memory.Clear(); _lastGunshot = default; _playerDanger.Clear(); _failedCovers.Clear(); _searchPacing.Clear(); } // 玩家失效时一并清理事件值缓存。
+            if (!playerAlive && (playerClue || _playerDanger.SearchUntil > 0)) { Memory.Clear(); _lastGunshot = default; _playerDanger.Clear(); _failedCovers.Clear(); _failedSearch.Clear(); _blockedShots.Clear(); _searchPacing.Clear(); } // 玩家失效时一并清理事件值缓存。
             LeavePlayerContext(now); // 不清除原生 AI 目标、不阻止原生瞄准或射击。
             return; // 不读取医疗、健康、不更新决策、不搜索掩体。
         }
@@ -464,6 +469,7 @@ internal sealed class BotAgent : IDisposable
             if (Controlled && !keepCoverMove) StopMotion(); // 搜索、恢复、失效或换目标仍停止旧移动。
             if (keepCoverMove && Trace(DiagnosticEvent.CoverMoveKept, now)) WriteTrace("COVER_MOVE_KEPT", now, $"from={State} to={next}"); // 记录真实状态切换时保留路线，不按帧写日志。
             _searchPacing.Cancel(); // 切换动作不能把旧停看等待带入新状态。
+            _blockedShots.ClearStreak(); // 不把上一个动作的阻挡次数拼进新交战窗口。
             SearchRoute.Clear(); // 旧路线不能跨避险、治疗等状态迁移。
             State = next; // 提交给 BigBrain 的缓存状态。
             _lifecycle.InvalidateRequests(); // 使旧动作路径结果无法复用。
@@ -555,7 +561,12 @@ internal sealed class BotAgent : IDisposable
                 break;
             case BehaviorState.Observe:
             case BehaviorState.Engage:
-                StopMotion(); // 射击窗口内避免无目的持续移动。
+                if (_moving && _pendingKind == QueryKind.Reposition && (Owner.Position - _destination).sqrMagnitude <= 1.44f && Owner.Mover.DistDestination <= 1.2f) // 换位必须走完短路线才能视为到达。
+                {
+                    StopMotion(); // 结束本模组的换位路线，后续仍走正常瞄准验证。
+                    if (Trace(DiagnosticEvent.RepositionArrived, now)) WriteTrace("REPOSITION_ARRIVED", now, "reason=world-obstacle"); // 区分申请换位与实际到达。
+                }
+                else if (!_moving || _pendingKind != QueryKind.Reposition) StopMotion(); // 普通射击窗口继续保持静止。
                 AimAndFire(now); // 武器动画保持原生逐帧更新。
                 break;
             case BehaviorState.Cover:
@@ -670,8 +681,15 @@ internal sealed class BotAgent : IDisposable
         if (Physics.Linecast(from, target, LayersMaskController.HighPolyWithTerrainMask, QueryTriggerInteraction.Ignore)) // 阻止对实心障碍开火。
         {
             if (Trace(DiagnosticEvent.ShotWorldBlocked, now)) WriteTrace("SHOT_BLOCKED", now, "reason=world-obstacle"); // 只输出限频的几何阻挡明细。
+            bool canReposition = Controlled && LayerSelected && Participating && (State == BehaviorState.Observe || State == BehaviorState.Engage) && !_moving && !_pending && !_recoveryRunning && Role != BotRole.Marksman && !_playerDanger.IsActive(now); // 只在自有真人交战层中换位，不抢撤离或紧急避险。
+            if (_blockedShots.Observe(enemy.ProfileId, canReposition, now, out int attempt) && AdaptiveMovement.TrySideStep(GameAdapter.Snapshot(Owner.Position), GameAdapter.Snapshot(target), attempt, out System.Numerics.Vector3 candidate)) // 三次连续真实挡枪才花一次共享导航额度。
+            {
+                Request(QueryKind.Reposition, GameAdapter.Position(candidate), now); // 路径仍由原有完整路径和距离上限检查。
+                if (Trace(DiagnosticEvent.RepositionRequested, now)) WriteTrace("REPOSITION_REQUESTED", now, $"side={attempt} queued={_pending}"); // 排队不等于路线成功。
+            }
             return true;
         }
+        _blockedShots.ClearStreak(); // 已恢复世界枪线时取消累计阻挡。
         Vector3 direction = target - from; // 第二条检测只查询前方人员。
         float length = direction.magnitude; // 保存长度用于规范化和射线范围。
         if (length < 0.1f) { Runtime.Diagnostics.Count(DiagnosticEvent.ShotInvalidPoint); return true; } // 退化零长度方向不射击。
@@ -773,6 +791,13 @@ internal sealed class BotAgent : IDisposable
             return;
         }
         Vector3 point = _searchPoints[_searchProgress.Index]; // 本轮最多只有三个候选。
+        if (!_moving && !_pending && _failedSearch.Rejects(GameAdapter.Snapshot(point), now)) // 短期失败记忆只在真正需要新路径时跳过该点。
+        {
+            int index = _searchProgress.Index; // 日志使用跳过前的候选序号。
+            _searchProgress.CompletePoint(false); // 不把不可达区域冒充实际搜到。
+            if (Trace(DiagnosticEvent.SearchCandidateSkipped, now)) WriteTrace("SEARCH_CANDIDATE_SKIPPED", now, $"pointIndex={index} reason=recent-navigation-failure"); // 可据此验证没有重算同一断路。
+            return;
+        }
         bool reachedStep = _moving && (Owner.Position - _destination).sqrMagnitude <= 1.44f && Owner.Mover.DistDestination <= 1.2f; // 还必须走完原生路径，隔墙接近终点不能提前结束。
         if (reachedStep)
         {
@@ -854,6 +879,12 @@ internal sealed class BotAgent : IDisposable
         StopAim(); // 移动和无掩体期间继续优先避险。
         if (_recoveryRunning) { StopMotion(); return; } // 不取消已有医疗或换弹，姿态由统一入口处理。
         if (_hasCover && !AtCover) { MoveToCover(now); return; } // 已验证路径优先，不重复找掩体。
+        if (_moving && _pendingKind == QueryKind.Escape) // 无掩体撤离路线不能被每帧 Evade 自己停掉。
+        {
+            if ((Owner.Position - _destination).sqrMagnitude > 1.44f || Owner.Mover.DistDestination > 1.2f) return; // 还未走完整路径就保持移动。
+            StopMotion(); // 路线确实到达后才结束短距撤离。
+            if (Trace(DiagnosticEvent.EscapeArrived, now)) WriteTrace("ESCAPE_ARRIVED", now, "reason=no-cover-no-prone"); // 分开查询成功与实际到达。
+        }
         StopMotion(); // 原地压低姿态时不沿用搜索路线。
         if (AtCover) return; // 已到掩体不额外趴下。
         if (Role != BotRole.Marksman && !_pending && !_coverUnavailable && now >= _retryAt) Request(QueryKind.Cover, Owner.Position, now); // 狙击模板不离岗，其他角色优先查询。
@@ -863,6 +894,12 @@ internal sealed class BotAgent : IDisposable
         if (blocked != null)
         {
             if (Trace(DiagnosticEvent.DangerProneSkipped, now)) WriteTrace("DANGER_PRONE_SKIPPED", now, $"reason={blocked}"); // 区分没有执行与原生地形限制。
+            bool canEscape = blocked != "already-prone" && Role != BotRole.Marksman && Controlled && LayerSelected && !_pending && !_moving && !_hasCover && _coverUnavailable; // 原生已有卧姿时不擅自站起；其余条件必须已确认掩体失败。
+            if (_escapeFallback.TryPlan(canEscape, GameAdapter.Snapshot(Owner.Position), GameAdapter.Snapshot(ThreatPoint(now)), now, out System.Numerics.Vector3 escapePoint)) // 每段危险最多两个有限近处候选。
+            {
+                Request(QueryKind.Escape, GameAdapter.Position(escapePoint), now); // 与其他紧急动作共享既有额度。
+                if (Trace(DiagnosticEvent.EscapeRequested, now)) WriteTrace("ESCAPE_REQUESTED", now, $"posture={blocked} queued={_pending}"); // 未入队不能误记为已移动。
+            }
             return;
         }
         Owner.BotLay.IsLay = true; // 通过原生卧姿控制器维护相关事件和动作状态。
@@ -924,6 +961,8 @@ internal sealed class BotAgent : IDisposable
         if (Disposed || Owner == null || !LayerSelected || !Controlled || !Participating) return false; // 层停止后迟到查询不能继续写动作。
         bool playerContext = Participating && (_playerDanger.IsActive(Time.time) || Owner.Memory.GoalEnemy == null || GameAdapter.IsPlayerTarget(Owner.Memory.GoalEnemy)); // 目标已切成 AI 时拒绝旧玩家任务。
         return !Disposed && playerContext && Controlled && _pending && request.Owner == Id && request.Generation == Generation && Owner.BotState == EBotState.Active &&
+            (request.Kind != QueryKind.Escape || (State == BehaviorState.Evade && _playerDanger.IsActive(Time.time) && !_hasCover)) && // 迟到的撤离路线不能覆盖新掩体。
+            (request.Kind != QueryKind.Reposition || ((State == BehaviorState.Observe || State == BehaviorState.Engage) && _visible && !_playerDanger.IsActive(Time.time))) && // 视线或交战状态失效后不再换位。
             (request.Kind != QueryKind.Cover || ((_hasClue || _playerDanger.IsActive(Time.time)) && System.Numerics.Vector3.DistanceSquared(request.Threat, GameAdapter.Snapshot(ThreatPoint(Time.time))) <= 25)); // 查询结果必须对应当前危险区域。
     }
 
@@ -1001,7 +1040,11 @@ internal sealed class BotAgent : IDisposable
         {
             _hasCover = false; // 放弃不可用掩体。
             _coverPath = null; // 释放失败缓存。
-            if (_pendingKind == QueryKind.Search && (State == BehaviorState.Search || State == BehaviorState.Investigate || State == BehaviorState.Advance)) { _searchProgress.CompletePoint(false); _arrivedAt = 0; _searchSegmentFinal = false; } // 只有调查路线失败才跳候选，掩体失败不能误耗搜索点。
+            if (_pendingKind == QueryKind.Search && (State == BehaviorState.Search || State == BehaviorState.Investigate || State == BehaviorState.Advance))
+            {
+                if ((reason == "nav-sample" || reason == "path-incomplete" || reason == "path-length") && _searchProgress.Index < 3) _failedSearch.Record(GameAdapter.Snapshot(_searchPoints[_searchProgress.Index]), now); // 连续导航失败才短期记住该搜索点。
+                _searchProgress.CompletePoint(false); _arrivedAt = 0; _searchSegmentFinal = false; // 掩体和换位失败不能误耗搜索点。
+            }
             _queryFailures = 0; // 冷却后下一目的地可重新验证。
         }
         NextDecision = Math.Min(NextDecision, now); // 让状态机考虑回退。
@@ -1027,6 +1070,8 @@ internal sealed class BotAgent : IDisposable
     public void Dispose()
     {
         if (Disposed) return; // 保证重复销毁安全。
+        _failedSearch.Clear(); // 场景对象销毁时不保留旧搜索位置。
+        _blockedShots.Clear(); // 不跨 Bot 生命周期复用目标与额度。
         try { Release(reason: "dispose"); } // 尽量恢复原生动作参数。
         catch (Exception exception) { Runtime.Log.LogWarning($"Bot {Id} 清理时对象已失效：{exception.Message}"); } // 销毁过程仅记录一次。
         finally { Disposed = true; } // Release 已在游戏对象访问之前撤销队列，重复扫描没有必要。

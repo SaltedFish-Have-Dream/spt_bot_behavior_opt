@@ -8,6 +8,8 @@ if (-not $GameRoot) { $GameRoot = [IO.Path]::GetFullPath((Join-Path $apiProjectR
 Add-Type -Path (Join-Path $GameRoot 'BepInEx\core\Mono.Cecil.dll')
 $apiGamePath = Join-Path $GameRoot 'EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll'
 $apiBrainPath = Join-Path $GameRoot 'BepInEx\plugins\DrakiaXYZ-BigBrain.dll'
+$apiWaypointsPath = Join-Path $GameRoot 'BepInEx\plugins\DrakiaXYZ-Waypoints\DrakiaXYZ-Waypoints.dll' # 正式前置与运行时相同安装路径。
+if (-not (Test-Path -LiteralPath $apiWaypointsPath -PathType Leaf) -or [Diagnostics.FileVersionInfo]::GetVersionInfo($apiWaypointsPath).FileVersion -ne '1.9.0') { throw '缺少已验证的 Waypoints 1.9.0 前置。' } # 缺少前置时不构建发布包。
 $apiGame = [Mono.Cecil.ModuleDefinition]::ReadModule($apiGamePath)
 $apiBrain = [Mono.Cecil.ModuleDefinition]::ReadModule($apiBrainPath)
 $apiVerified = [Collections.Generic.List[string]]::new()
@@ -89,6 +91,7 @@ try {
         gameProductVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $GameRoot 'EscapeFromTarkov.exe')).ProductVersion
         assemblySha256 = (Get-FileHash -LiteralPath $apiGamePath -Algorithm SHA256).Hash
         bigBrainProductVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($apiBrainPath).ProductVersion
+        waypointsProductVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($apiWaypointsPath).ProductVersion # 只验证文件版本；实际加载由插件启动核对。
         methodSignatures = @($apiVerified.ToArray())
         roles = $apiRoles
         runtimeTested = $false

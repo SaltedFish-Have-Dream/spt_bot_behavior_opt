@@ -23,7 +23,8 @@ internal enum DiagnosticEvent
     ShotAllowed, ShotNativeAccepted, ShotNativeRejected,
     ControlWaiting, ControlResumed, QueryNavSource, QueryPathSource, QueryPathLength, QueryPathEndpoint,
     MoveProgress, MoveArrived, RouteSegment, SearchRetry, ActionSlow, LimitPriority, DangerProneSkipped,
-    PressureChanged, CoverInvalidated, CoverCandidateRejected, SearchPaused, CoverMoveKept, ShotPressureBlocked, Count
+    PressureChanged, CoverInvalidated, CoverCandidateRejected, SearchPaused, CoverMoveKept, ShotPressureBlocked,
+    EscapeRequested, EscapeArrived, RepositionRequested, RepositionArrived, SearchCandidateSkipped, Count
 }
 
 /// <summary>固定容量计数与全局日志限频；明细被抑制时仍保留完整事件总量。</summary>

@@ -76,7 +76,10 @@ internal static partial class Program
             CoverMoveHandoffMatrix(); // 检查所有状态间的路线保留条件。
             DefensiveFireAndDangerFlow(); // 检查压力、失效掩体和五秒推进的组合。
             TacticalHotPathAllocations(); // 检查纯逻辑事件热循环的托管分配。
-            Console.WriteLine($"PASS: 62 scenarios, {_assertions} assertions."); // 输出实际验证数量。
+            EscapeFallbackBoundaries(); // 检查贴近危险、两次撤离和冷却结束。
+            BlockedShotRepositionBoundaries(); // 检查目标切换、零星阻挡和两侧限额。
+            SearchFailureMemoryBoundaries(); // 检查固定容量、空间范围和到期恢复。
+            Console.WriteLine($"PASS: 65 scenarios, {_assertions} assertions."); // 输出实际验证数量。
             return 0;
         }
         catch (Exception exception) // 明确报告失败而不是继续生成包。

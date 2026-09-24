@@ -1,10 +1,10 @@
-# 0.1.5 实测日志说明
+# 0.1.6 实测日志说明
 
-关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.5`；本版新增压力、掩体失效、搜索停看与掩体移动保持证据。真实移动进度、查询坐标、控制恢复、限流排序与动作子阶段从 0.1.4 起提供，姿态字段从 0.1.3 起提供。
+关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.6` 和 `NAVIGATION_RULES`；本版新增撤离换位、挡枪侧移及失败搜索点跳过的证据。此前的压力、掩体、姿态和控制交接日志继续保留。
 
 ## 实测步骤
 
-1. 关闭游戏后更新插件；停用 SAIN、ORBIT，保留 BigBrain 1.5.0。默认 `EventLogging=true`、`EventLogsPerSecond=8`、`SummarySeconds=30` 即可。
+1. 关闭游戏后更新插件；停用 SAIN、ORBIT，保留 BigBrain 1.5.0 和 Waypoints 1.9.0。默认 `EventLogging=true`、`EventLogsPerSecond=8`、`SummarySeconds=30` 即可。
 2. 开始一局少量 Bot 的战局，尽量覆盖接敌、遮挡后搜索、掩体移动和换弹；记下地图、大致时间、Bot 数量及看到的异常。
 3. 正常结束战局回到菜单，让战局清理日志写出。若发生崩溃，同样保留现有日志，缺少最终汇总本身也是证据。
 4. **再次启动游戏前保留日志**，避免原日志被覆盖。可运行项目中的 `tools/Collect-Logs.ps1`，或告知助手“实测结束”，由助手读取并归档。
@@ -19,6 +19,10 @@
 | `PATCH_APPLIED / READY` | 基础十一个方法；AI Limit 适配成功时十二个 | 以 `expectedMethods` 核对；初始化不代表已执行行为 |
 | `PLAYER_RULES` | 本版运行模式、距离、危险时长和 Boss 范围 | `mode=local-human-only` 是固定模式，没有默认扩大至 AI 或远程玩家 |
 | `TACTICAL_RULES` | 四个战术开关及固定容量/时长配置 | 启动记录不代表对应行为已经执行 |
+| `NAVIGATION_RULES` | Waypoints 实际加载并进入本版导航规则 | 不代表地图所有位置都有完整可达路径 |
+| `ESCAPE_REQUESTED / ESCAPE_ARRIVED` | 卧姿受阻后的有限短距撤离申请及实际到达 | `queued=False` 或只有查询成功均不代表实际位移 |
+| `REPOSITION_REQUESTED / REPOSITION_ARRIVED` | 连续世界障碍挡枪后申请侧移及到达 | 仍须核对目标真实可见、后续射击安全结果 |
+| `SEARCH_CANDIDATE_SKIPPED` | 十五秒内跳过近期确认不可达的搜索点 | 表示失败候选，不计作搜到玩家位置 |
 | `PRESSURE_CHANGED` | 个人压力等级发生变化，含前后等级与当前值 | 只接受玩家个人命中/近弹，队友告警不加个人压力；明细限频可能省略中间等级 |
 | `COVER_INVALIDATED` | 到达自有掩体后遭玩家命中，失效点已撤销 | 不代表替代掩体已经找到，后续仍看查询与移动链路 |
 | `SEARCH_PAUSED` | 已开始一次接近线索时的有限停看，含时长、剩余路线和次数 | 每区域最多两次；不代表卡住，也不延长线索或路线寿命 |
