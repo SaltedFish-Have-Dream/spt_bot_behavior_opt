@@ -258,6 +258,22 @@ internal static partial class Program
         Check(!danger.IsActive(15) && danger.CanAdvance(15) && pressure.Level == PressureLevel.Calm, "five second quiet still permits bounded advance");
     }
 
+    /// <summary>无掩体自卫只在完成避险且确实有视线、武器和姿态条件时开放。</summary>
+    private static void ExposedReturnFireBoundaries()
+    {
+        Check(!TacticalActionPolicy.CanExposedReturnFire(true, false, false, true, false, true, true, PressureLevel.Calm, 10.74, 10), "first flinch cannot return fire"); // 初次受惊仍先找掩体。
+        Check(TacticalActionPolicy.CanExposedReturnFire(true, false, false, true, false, true, true, PressureLevel.Calm, 10.75, 10), "safe exposed self defense opens"); // 完成姿态处理和短窗口后允许验证射击。
+        Check(!TacticalActionPolicy.CanExposedReturnFire(false, false, false, true, false, true, true, PressureLevel.Calm, 11, 10), "cover still under review blocks defense"); // 查询未证实失败不能提前停止避险。
+        Check(!TacticalActionPolicy.CanExposedReturnFire(true, true, false, true, false, true, true, PressureLevel.Calm, 11, 10), "moving bot cannot fire in escape"); // 短距脱离途中不强行瞄准。
+        Check(!TacticalActionPolicy.CanExposedReturnFire(true, false, true, true, false, true, true, PressureLevel.Calm, 11, 10), "pending route blocks defense"); // 已排队掩体或撤离任务仍优先。
+        Check(!TacticalActionPolicy.CanExposedReturnFire(true, false, false, false, false, true, true, PressureLevel.Calm, 11, 10), "hidden player cannot be fired on"); // 旧枪声位置不赋予射击许可。
+        Check(!TacticalActionPolicy.CanExposedReturnFire(true, false, false, true, true, true, true, PressureLevel.Calm, 11, 10), "native recovery remains protected"); // 原生治疗与换弹不可被中断。
+        Check(!TacticalActionPolicy.CanExposedReturnFire(true, false, false, true, false, false, true, PressureLevel.Calm, 11, 10), "empty or unready weapon blocks defense"); // 没有武器不能假装开火。
+        Check(!TacticalActionPolicy.CanExposedReturnFire(true, false, false, true, false, true, false, PressureLevel.Calm, 11, 10), "unresolved prone action blocks defense"); // 能合法卧倒时先完成原生姿态。
+        Check(!TacticalActionPolicy.CanExposedReturnFire(true, false, false, true, false, true, true, PressureLevel.Pinned, 11, 10), "pinned bot stays sheltered"); // 高压不能因玩家露头而强制反击。
+        Check(!TacticalActionPolicy.CanExposedReturnFire(true, false, false, true, false, true, true, PressureLevel.Calm, double.NaN, 10), "invalid time blocks defense"); // 非法时钟不能绕过受惊窗口。
+    }
+
     /// <summary>热路径仅操作预分配对象与值，事件风暴中不创建托管垃圾；不代表游戏接口零分配。</summary>
     private static void TacticalHotPathAllocations()
     {

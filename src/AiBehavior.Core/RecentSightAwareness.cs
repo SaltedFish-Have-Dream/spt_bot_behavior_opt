@@ -13,6 +13,8 @@ public sealed class RecentSightAwareness
     private double _repeekUntil;
     private bool _lost;
     private bool _primed;
+    private bool _readyAtLoss;
+    private bool _readyOnRepeek;
 
     /// <summary>原生个人视觉已确认可见时，更新本 Bot 自己看见的位置。</summary>
     public void ObserveVisible(string? identity, Vector3 position, double now)
@@ -24,12 +26,14 @@ public sealed class RecentSightAwareness
         _lastSeenAt = now; // 只有真实可见时才更新最近目击时间。
     }
 
-    /// <summary>视线真正从可见转为不可见时，短暂观察旧出口并建立再发现窗口。</summary>
-    public bool MarkLost(double now)
+    /// <summary>视线真正消失时保存短时旧出口，以及遮挡前是否已经完成反应准备。</summary>
+    public bool MarkLost(double now, bool fireReady = false)
     {
         if (_identity == null || double.IsNaN(now) || double.IsInfinity(now) || now < _lastSeenAt || now - _lastSeenAt > 0.75 || _lost) return false; // 长时间没有视觉证据不能凭旧点守候。
         _lost = true; // 同一次失视只能建立一次守点窗口。
         _primed = false; // 上一次再发现优势不能跨新的遮挡反复叠加。
+        _readyAtLoss = fireReady; // 只有遮挡前已经完成反应准备的 Bot 可快速恢复射击。
+        _readyOnRepeek = false; // 新遮挡先撤销上一次快速开火许可。
         _watchUntil = now + 1.25; // 短停留后交还已有有限搜索路线。
         _repeekUntil = now + 8; // 同位置再出现的识别资格有独立八秒上限。
         return true;
@@ -44,7 +48,7 @@ public sealed class RecentSightAwareness
         return true;
     }
 
-    /// <summary>同一真人在旧位置六米内再次被真实看见时，允许本次连续可见窗口缩短准备时间。</summary>
+    /// <summary>同一真人在旧位置六米内再次被真实看见时，恢复本次可见窗口的有限准备资格。</summary>
     public bool TryReacquire(string? identity, Vector3 visiblePosition, double now)
     {
         if (!_lost || _identity != identity || !ThreatMemory.Finite(visiblePosition) || double.IsNaN(now) || double.IsInfinity(now) || now < _lastSeenAt) return false; // 只有前一次失视的同一目标可获资格。
@@ -52,6 +56,8 @@ public sealed class RecentSightAwareness
         _lost = false; // 即使是远处新位置，也不能再守着旧出口。
         _watchUntil = 0; // 重新看见后立即结束守点。
         _primed = familiar; // 熟悉优势只持续这一次连续可见窗口。
+        _readyOnRepeek = familiar && _readyAtLoss; // 旧位置再次露头且此前真正就绪，才可跳过重复的模组等待。
+        _readyAtLoss = false; // 消费遮挡前资格，不允许第二次重现沿用旧资格。
         return familiar;
     }
 
@@ -59,6 +65,12 @@ public sealed class RecentSightAwareness
     public bool IsPrimed(string? identity)
     {
         return _primed && _identity == identity; // 不对其他目标或尚未确认视线的对象生效。
+    }
+
+    /// <summary>仅同一真人在原区域重新被亲眼看见且遮挡前已就绪时，保留快速开火资格。</summary>
+    public bool CanFireOnRepeek(string? identity)
+    {
+        return _readyOnRepeek && _identity == identity; // 位置、身份和时间已由再次目视入口验证。
     }
 
     /// <summary>玩家情境结束、目标死亡或 Bot 销毁时删除全部个人视觉状态。</summary>
@@ -69,5 +81,6 @@ public sealed class RecentSightAwareness
         _lastSeenAt = double.NegativeInfinity; // 下次目击从新时钟开始。
         _watchUntil = _repeekUntil = 0; // 过期资格不能跨生命周期恢复。
         _lost = _primed = false; // 清除守点和再发现标志。
+        _readyAtLoss = _readyOnRepeek = false; // 跨目标或战局不能保留快速开火资格。
     }
 }

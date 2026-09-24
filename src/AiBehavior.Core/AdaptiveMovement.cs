@@ -31,6 +31,19 @@ public static class AdaptiveMovement
         point = origin + side * (attempt == 0 ? 3 : -3); // 两次最多各三米，实际可达性留给共享导航查询。
         return ThreatMemory.Finite(point); // 溢出候选不能进入原生移动器。
     }
+
+    /// <summary>贴脸且已亲眼看见玩家时提出三米反向候选，实际可达性仍由完整路径验证。</summary>
+    public static bool TryBackStep(Vector3 origin, Vector3 target, out Vector3 point)
+    {
+        point = default; // 无效输入不能沿用上次目的地。
+        if (!ThreatMemory.Finite(origin) || !ThreatMemory.Finite(target)) return false; // 非法坐标不能进入导航。
+        if (Math.Abs(target.Y - origin.Y) > 2.5f) return false; // 不把上下楼层的水平接近误判为贴脸交战。
+        Vector3 away = new(origin.X - target.X, 0, origin.Z - target.Z); // 只按水平距离后撤，不把楼层差变成移动方向。
+        float distanceSquared = away.LengthSquared(); // 一次平方距离用于贴脸和最大触发范围。
+        if (distanceSquared < 1 || distanceSquared >= 36) return false; // 重叠目标方向不可信，六米以上交给原有侧移。
+        point = origin + Vector3.Normalize(away) * 3; // 固定短距离，不生成多候选或逐帧随机点。
+        return ThreatMemory.Finite(point); // 极端坐标溢出时拒绝请求。
+    }
 }
 
 /// <summary>同一段持续危险中限制无掩体撤离次数，不让连续近弹无限产生路径请求。</summary>

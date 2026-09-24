@@ -3,7 +3,7 @@ using System;
 namespace AiBehavior.Core;
 
 /// <summary>固定阶段统计；嵌套区间按独占时间归属，阶段总量可以相加。</summary>
-public enum WorkPhase { Safety, Decision, Action, Perception, Shooting, Query, Lifecycle, Logging, ActionAim, ActionAimClear, ActionSearch, ActionMove, ActionEvade, ActionRecovery, ActionPosture, Count }
+public enum WorkPhase { Safety, Decision, Action, Perception, Shooting, Query, Lifecycle, Logging, ActionAim, ActionAimClear, ActionSearch, ActionMove, ActionEvade, ActionRecovery, ActionPosture, ActionGrenade, Count }
 
 /// <summary>无需逐帧分配的主线程计时器，由调用方提供单调时钟刻度。</summary>
 public sealed class WorkProfiler

@@ -55,15 +55,17 @@ public static class PlayerThreatPolicy
 public sealed class PlayerDanger
 {
     public double LastDangerAt { get; private set; } = double.NegativeInfinity;
+    public double LastPersonalHitAt { get; private set; } = double.NegativeInfinity;
     public double SearchUntil { get; private set; }
     public Vector3 Position { get; private set; }
     public double CloseAlertUntil { get; private set; }
 
-    /// <summary>记录玩家受击、近弹或一次友方告警，保存带误差且不再跟随射手的快照。</summary>
-    public bool Observe(bool localHuman, Vector3 position, double now, double searchSeconds)
+    /// <summary>记录玩家命中、近弹或一次友方告警，单独标记本人命中并保存不再跟随射手的快照。</summary>
+    public bool Observe(bool localHuman, Vector3 position, double now, double searchSeconds, bool personalHit = false)
     {
         if (!localHuman || !ThreatMemory.Finite(position) || double.IsNaN(now) || double.IsInfinity(now) || double.IsNaN(searchSeconds) || double.IsInfinity(searchSeconds) || now < LastDangerAt) return false; // 未知来源、无效寿命与倒序事件都不能延长压制。
         LastDangerAt = now; // 新的真实危险重置五秒安全窗口。
+        if (personalHit) LastPersonalHitAt = now; // 仅本人被玩家子弹命中才留下允许考虑趴伏的证据。
         SearchUntil = now + Math.Max(6, Math.Min(45, searchSeconds)); // 危险结束后仍有有限的调查机会。
         Position = position; // 不保存敌人 Transform 或位置回调。
         return true;
@@ -81,6 +83,12 @@ public sealed class PlayerDanger
         return now >= LastDangerAt && now < LastDangerAt + 5;
     }
 
+    /// <summary>本人命中的趴伏资格只保留五秒，近弹和队友告警不能重新续期。</summary>
+    public bool HasRecentPersonalHit(double now)
+    {
+        return IsActive(now) && now >= LastPersonalHitAt && now < LastPersonalHitAt + 5; // 同一危险窗口内也要单独核验本人的真实命中时间。
+    }
+
     /// <summary>安静满五秒后允许对最后危险区域做有限推进。</summary>
     public bool CanAdvance(double now)
     {
@@ -91,6 +99,7 @@ public sealed class PlayerDanger
     public void Clear()
     {
         LastDangerAt = double.NegativeInfinity;
+        LastPersonalHitAt = double.NegativeInfinity; // 跨目标或战局不能继承本人命中资格。
         SearchUntil = CloseAlertUntil = 0;
         Position = default;
     }

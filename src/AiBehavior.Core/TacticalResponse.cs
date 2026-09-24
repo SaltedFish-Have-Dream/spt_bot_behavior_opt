@@ -112,11 +112,30 @@ public sealed class FailedCoverMemory
 /// <summary>高压还击与掩体动作连续性的值判断，不读取游戏对象。</summary>
 public static class TacticalActionPolicy
 {
+    /// <summary>只有本人近期中弹、掩体已证实不可用且当前无法目视玩家时才允许本模组主动趴伏。</summary>
+    public static bool CanProneAfterHit(bool personalHit, bool coverUnavailable, bool hasCover, bool queryPending, bool visible, bool moving)
+    {
+        return personalHit && coverUnavailable && !hasCover && !queryPending && !visible && !moving; // 对枪、近弹和队友告警都不能使 Bot 主动卧倒。
+    }
+
+    /// <summary>本模组持有玩家交战控制时，撤销接管后新出现的卧姿，保留接管前已有的原生卧姿。</summary>
+    public static bool ShouldClearVisibleProne(bool controlled, bool layerSelected, bool visible, bool playerTarget, bool originallyProne, bool currentlyProne)
+    {
+        return controlled && layerSelected && visible && playerTarget && !originallyProne && currentlyProne; // 不越过原生层控制权或改动原有狙击卧姿。
+    }
+
     /// <summary>到达有效掩体、已过短暂受惊窗口且压力回落后才尝试还击，实际射击仍须原生验证。</summary>
     public static bool CanReturnFire(bool atCover, bool moving, bool visible, bool recovering, PressureLevel pressure, double now, double lastDanger)
     {
         return atCover && !moving && visible && !recovering && pressure != PressureLevel.Pinned &&
             !double.IsNaN(now) && !double.IsInfinity(now) && !double.IsNaN(lastDanger) && !double.IsInfinity(lastDanger) && now - lastDanger >= 0.75;
+    }
+
+    /// <summary>掩体确实不可用且当前无需等待卧姿处理时，允许 Bot 在短暂受惊后自卫。</summary>
+    public static bool CanExposedReturnFire(bool coverUnavailable, bool moving, bool queryPending, bool visible, bool recovering, bool weaponReady, bool postureResolved, PressureLevel pressure, double now, double lastDanger)
+    {
+        return coverUnavailable && !moving && !queryPending && visible && !recovering && weaponReady && postureResolved && pressure != PressureLevel.Pinned &&
+            !double.IsNaN(now) && !double.IsInfinity(now) && !double.IsNaN(lastDanger) && !double.IsInfinity(lastDanger) && now - lastDanger >= 0.75; // 保留初始避险窗口和高压停火，不为自卫新增物理查询。
     }
 
     /// <summary>只在同一个有效掩体的移动动作之间保留原生路线，搜索和恢复不继承它。</summary>

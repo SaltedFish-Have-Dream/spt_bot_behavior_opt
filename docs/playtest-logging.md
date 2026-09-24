@@ -1,6 +1,6 @@
-# 0.1.8 实测日志说明
+# 0.3.0 实测日志说明
 
-关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.8`、`COMBAT_RULES`、`VISION_RULES` 和 `NAVIGATION_RULES`；本版新增近距交战主动侧移证据，此前的失视守点、受阻换位、搜索失败点和压力日志继续保留。
+关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.3.0`、`COMBAT_TACTICS_RULES`、`COMBAT_MEMORY_RULES`、`FIRE_RESPONSE_RULES fastRepeek=True exposedSelfDefense=True`、`SAIN_ADAPTATION_RULES temperament=True coordinatedAdvance=True adaptiveFireMode=True`、`COMBAT_RULES footwork=True closeRange=True`、`VISION_RULES` 和 `NAVIGATION_RULES`；本版新增突击、伏击、换掩体、手雷和 ADS 证据。
 
 ## 实测步骤
 
@@ -21,9 +21,25 @@
 | `TACTICAL_RULES` | 四个战术开关及固定容量/时长配置 | 启动记录不代表对应行为已经执行 |
 | `NAVIGATION_RULES` | Waypoints 实际加载并进入本版导航规则 | 不代表地图所有位置都有完整可达路径 |
 | `VISION_RULES` | 本版个人视觉守点、同区域再识别时间与空间边界 | 启动配置不代表已实际触发 |
-| `COMBAT_RULES` | 主动侧移开关、距离与交战稳定窗口 | 启动配置不代表 Bot 实际取得控制或完成移动 |
+| `COMBAT_RULES` | 主动侧移与贴脸后撤开关、距离和交战稳定窗口 | 启动配置不代表 Bot 实际取得控制或完成移动 |
+| `SAIN_ADAPTATION_RULES` | PMC 风格、小队推进和武器模式三个开关及阈值 | 只记录启动配置，不证明玩家事件已触发 |
+| `COMBAT_TACTICS_RULES` | 伏击、突击、换掩体、战术手雷和 ADS 的开关与固定边界 | 五个开关默认开启；只代表初始化成功 |
+| `AMBUSH_SELECTED / RUSH_SELECTED` | 近距玩家脚步短暂停看，或 PMC 根据最后个人视觉旧点取得短距推进机会 | `RUSH_SELECTED` 还需对应 `MOVE_STARTED/MOVE_PROGRESS` 才证明行动 |
+| `COVER_SHIFT_REQUESTED / COVER_SHIFT_ARRIVED` | 失视旧掩体申请局部换位及实际到达 | `queued=False`、查询失败或原生抢占时不等于到达 |
+| `GRENADE_THROWN / GRENADE_REJECTED` | 原生接受投掷，或轨迹/控制器拒绝 | 已接受不等于安全落地；没有手雷、超时或友军挡点可只体现在累计计数中 |
+| `AIM_MODE_CHANGED / AIM_MODE_RESTORED` | 实际切换 ADS，或层交还时归还仍由本模组持有的选择 | 其他层提前改写时不强行恢复；射击仍须单独验证 |
+| `FIRE_RESPONSE_RULES` | 再露头快速还击与无掩体自卫的开关、距离及时长边界 | 启动配置不代表已获得原生瞄准或射击许可 |
+| `REPEEK_RECOGNIZED` 的 `readyAtLoss` | 是否在上次遮挡前已经完成模组反应准备 | `True` 也必须重新亲眼看见玩家、拥有就绪武器且完成原生瞄准 |
+| `FIRE_OPPORTUNITY_WAIT` | 玩家已连续可见至少 0.25 秒后，记录首次或变化的等待原因 | `Reaction/NativeAim/NoShootablePart/VisionStale/Recovery/Evasion`；受普通明细限频，不是全部等待帧 |
+| `FIRE_OPPORTUNITY_READY` | 模组反应和原生瞄准首次同时就绪，含本次露头等待毫秒数 | 只是可申请射击的窗口，后续还可能被世界遮挡、友军、队列或原生扳机阻止 |
+| `EXPOSED_DEFENSE_READY` | 确认无掩体后低压 Bot 的受限自卫窗口首次打开 | 不证明已经开枪；仍应继续找 `FIRE_OPPORTUNITY_READY`、`SHOT_NATIVE_RESULT` |
+| `SQUAD_ADVANCE_SELECTED` | 命中告警后给一名合格近邻推进名额，`selected=False` 表示受害者让出名额 | 名额不代表五秒后必然开始推进；须核对 `STATE_CHANGED`、`ACTION_ENTERED`、路径和到达 |
+| `FIRE_MODE_CHANGED / FIRE_MODE_RESTORED` | 个人目视交战时实际写入模式，或交还控制时恢复仍由本插件持有的模式 | 不代表原生已开火或射中；其他系统改写时不会强行恢复 |
+| `FIRE_MODE_RESTORE_FAILED` | 交接或销毁期间恢复武器对象发生异常 | 应保存完整异常及武器场景，不能按正常恢复判读 |
 | `COMBAT_FOOTWORK_REQUESTED` | 近距目视交战中提出一次主动侧移并成功排队 | 仍须看查询成功、移动进度与到达，不能把排队当完成 |
+| `CLOSE_RANGE_RETREAT_REQUESTED` | 一至六米目视交战中提出三米后撤并成功排队 | 路径可能失败或被紧急动作打断，不代表实际位移 |
 | `REPOSITION_ARRIVED reason=open-fight` | 主动侧移路线实际到达 | 与 `reason=world-obstacle` 的挡枪换位分开统计 |
+| `REPOSITION_ARRIVED reason=close-range` | 贴脸后撤路线实际到达 | 中间还应核对同 Bot 的 `QUERY_SUCCEEDED`、`MOVE_STARTED` 和 `MOVE_PROGRESS` |
 | `SIGHT_WATCH_ARMED / SIGHT_WATCH_ACTIVE` | 真实失视后取得短期资格，以及实际执行向旧位置转向 | 不能证明已看见或瞄准隐藏玩家；已武装不等于已取得控制 |
 | `REPEEK_RECOGNIZED` | 再次真实看见同一玩家，且新位置靠近旧目击点 | 只缩短新增准备等待，仍需查射击许可和原生结果 |
 | `ESCAPE_REQUESTED / ESCAPE_ARRIVED` | 卧姿受阻后的有限短距撤离申请及实际到达 | `queued=False` 或只有查询成功均不代表实际位移 |
@@ -35,14 +51,14 @@
 | `COVER_MOVE_KEPT` | 掩体族状态切换时保留同一有效移动路线 | 同状态持续移动不重复记录，不等于已到达 |
 | `PLAYER_SCOPE_ENTERED / PLAYER_SCOPE_LEFT` | 从真人线索激活或交还原生的边沿 | 直接受击也可直接进入 `Evade`，不必先出现 ENTERED |
 | `PLAYER_DANGER` | 玩家枪弹危险已保存且设置避险状态 | `kind=hit/near-bullet/ally-hit`；实际动作仍看 `ACTION_ENTERED` |
-| `DANGER_PRONE` | 无验证可用掩体后已调用原生合法卧姿 | 不能仅靠此日志证明模型姿态完成或保证不会被命中 |
+| `DANGER_PRONE` | 本人被玩家命中、无验证可用掩体且当前失视后，本模组已调用原生合法卧姿 | 不能仅靠此日志证明模型姿态完成或保证不会被命中 |
 | `POSE_CHANGED` | 本模组真正提交了新蹲站目标，含前值、目标、状态、危险/移动/掩体条件 | 相同目标不重复写；不代表动画已完成，也不记录其他插件的姿态写入 |
 | `POSE_RESTORED` | 行为层交还控制，恢复仍属于本模组的目标姿态 | 原生已改写目标时不覆盖；未改过姿态或重复释放不计数 |
 | `PLAYER_SCOPE` | 玩家增强参与数、紧急队列、弹道积压/丢弃、告警合并 | 与活动数、地图交火情况及 `TIMING` 联合判断 |
 | `PLAYER_EVENT_FAILED` | 当前局的命中或近弹入口异常并被停用 | 原生伤害/弹道保留；必须看异常栈，不能算本版测试通过 |
 | `HEARTBEAT` | 插件仍在更新，目前未观察到 Bot 激活 | 在菜单正常；战局内长期如此需排查激活入口 |
 | `RAID_OBSERVED` | 本次进程已收到某局首次 Bot 激活 | 时间不是地图加载起点 |
-| `REGISTERED / NATIVE_SKIPPED / BRAIN_SKIPPED` | 受管上下文建立或明确旁路原因 | 普通注册明细可能限频；每局前 32 种未知角色/脑型组合首次必记，不消耗普通令牌 |
+| `REGISTERED / NATIVE_SKIPPED / BRAIN_SKIPPED` | 受管上下文建立、PMC 固定 `temperament` 或明确旁路原因 | 普通注册明细可能限频；每局前 32 种未知角色/脑型组合首次必记，不消耗普通令牌 |
 | `BRAIN_SKIPPED_OVERFLOW` | 未知组合已超过固定容量，后续仅保留总计数 | 每局最多一次，不代表停止兼容回退 |
 | `DEACTIVATED / REACTIVATED` | 受管 Bot 活动状态发生真实边沿变化 | 重复停用帧不重复清理，不能单凭此日志认定是哪个模组切换状态 |
 | `STATE_CHANGED` | 高层选择了新状态与当时条件 | 尚不能证明 BigBrain 采用了动作 |
@@ -50,12 +66,14 @@
 | `CONTROL_RELEASED` | 自有动作退出或被其他层抢占 | 结合状态判断正常交接还是反复切换 |
 | `CONTROL_WAITING` | 有接管资格但持续未获得控制，包含 `selected/nativeLayer/grenade` | 原生高优先级行为可以正常阻止接管，不自动等于故障 |
 | `AI_LIMIT_COMPAT / AI_LIMIT_PRIORITY` | 可选适配启用及玩家情境对象被提高活动排序 | 不改变数量上限，不证明已激活；激活仍受原插件检查周期影响 |
-| `SIGHT_CHANGED / SOUND_SAVED / MEMORY_EXPIRED` | 感知边沿、声音入库与旧目标记忆失效 | 视觉回调总量见 `VisionSaved` |
+| `SIGHT_CHANGED / SOUND_SAVED / MEMORY_EXPIRED` | 感知边沿、声音入库与旧目标记忆失效；`SIGHT_CHANGED memoryLeft` 显示当前目标线索剩余秒数 | 视觉回调总量见 `VisionSaved`；有期限不代表仍能直接开枪 |
 | `SOUND_OUT_OF_RANGE / SEARCH_FINISHED` | 声音调查点超距被过滤，或调查因到期/完成/超距而结束 | 超距声音不删除已有视觉记忆；结束自有搜索不等于已经证明原生巡逻恢复 |
+| `SEARCH_AREA_HELD` | 近距同层交战的三点区域已查完，但最近视觉记忆仍有效；Bot 守住最后线索区域 | 只在进入守点时记一次，不代表能隔墙瞄准或新增导航候选 |
 | `QUERY_SUCCEEDED / MOVE_STARTED` | 完整查询通过、路径已提交原生移动器 | 路径提交不等于最终到达 |
 | `MOVE_PROGRESS / MOVE_ARRIVED` | 实际位置发生变化，或走到经导航验证的当前段终点 | `final=False` 只是中间段；观察完整线索距离变化及后续段 |
 | `SEARCH_RETRY / SEARCH_FINISHED` | 有期限的失败重试，以及 `reached/failed` 最终计数 | `area-checked` 为完成，`unreachable` 为失败退出，不再混称候选耗尽 |
-| `DANGER_PRONE_SKIPPED` | 已无验证掩体但卧姿检查未提交，含贴脸、已卧姿或原生阻止 | 不能把每条跳过记录都当成错误 |
+| `DANGER_PRONE_SKIPPED` | 已无验证掩体但卧姿检查未提交，含仍看见目标、无本人命中、贴脸、已卧姿或原生阻止 | `visible-target` / `no-personal-hit` 表示本模组主动拒绝趴伏，不代表原生 AI 不会改姿态 |
+| `VISIBLE_PRONE_CLEARED` | 本模组持有玩家交战层时，已撤销接管后新出现且与可见交火冲突的卧姿 | `source=external` 表示不是本模组主动趴伏入口；接管前原有卧姿不会被改写 |
 | `ACTION_SLOW` | 两毫秒以上的动作子调用，含阶段、Bot、状态与耗时 | 墙钟时间含同步原生调用、GC 或调度停顿；明细仍限频 |
 | `QUERY_FAILED / QUERY_REJECTED / STUCK` | 查询失败原因、入队拒绝或移动无进展 | 单次找不到掩体不一定是缺陷，应看重复次数及场景 |
 | `SHOT_BLOCKED / SHOT_EXPIRED` | 实体/人员阻挡，或射击请求等待到期 | 不能只看 `blockedShots` 判定 Bot 无法射击 |
@@ -77,13 +95,16 @@
 - `bulletChecks` 是近弹候选筛选总数，包含失活/非敌对候选的过滤；`bulletPending` 上限 64，`bulletDropped/bulletExpired` 增长意味着部分近弹通知被舍弃，直接命中不经过该队列。
 - `allyAlertsSuppressed` 是合并的受击广播次数，不是漏判直接受害者的次数；`hitEnabled/bulletEnabled` 正常为 `True`。
 - `PressureChanged/CoverInvalidated/SearchPaused/CoverMoveKept` 是上述真实行为边沿的累计数。短期压力清空只重置内部基准，不额外生成退出事件；后续新压力会从平静状态重新判读。
+- `SquadAdvanceSelected` 是推进名额变动日志的累计数，含给队友的 `selected=True` 和受害者让出的 `selected=False`；不是实际完成推进的人数。`FireModeChanged/FireModeRestored` 统计实际写入和归还，若其他系统先改写，恢复数可小于切换数。
+- `FireOpportunityWait/FireOpportunityReady/ExposedDefense` 是可见窗口或原因边沿的累计数，不是逐帧次数。`FIRE_OPPORTUNITY_READY` 之后没有 `SHOT_NATIVE_RESULT` 时，继续查看 `SHOT_BLOCKED`、射击队列、原生冷却及是否很快失去真实视线；不要把“已就绪”解释成“已发射”。
 - `CoverCandidateRejected` 是候选被失效记忆过滤的次数，包含粗选和导航阶段，后续请求成功也会保留；不是唯一掩体数或请求失败数。`QUERY_FAILED reason=cover-rejected` 仅代表请求最终因此失败。
 - `ShotPressureBlocked` 是实际接管的避险动作尚不满足掩体还击条件时的拒绝次数，包含高压、刚受击、无有效掩体/视线和功能关闭后的旧版停火规则。不是独立 Bot 数；还击仍须查看既有射击验证链路与 `SHOT_NATIVE_RESULT`。
 - `PoseChanged/PoseRestored` 统计实际调用姿态接口的次数。连续近弹与路径重规划不应导致 `target=0.00/0.90` 高频交替；普通意图需稳定 0.75 秒，真实新危险可立即压低。判读时区分同一 Bot 与不同 Bot 的事件，结合 `CONTROL_RELEASED/CLAIMED` 判断控制交接。
 - `CONTROL_CLAIMED reason=selected-action-resume` 和 `ControlResumed` 表示 BigBrain 实际执行本动作时恢复了租约；不能从 SafetyTick 或外部限流回调强行接管。
 - `QUERY_FAILED` 新增 `nav-source/path-source/path-length/path-endpoint`，原 `path-bounds` 保留为旧版计数兼容。明细包含查询种类、候选序号、原始/投影/起点坐标、路径长度和 NavMesh 状态；失败时可能保留最后尝试的状态，需与原因及候选序号一起看。坐标均来自事件快照或本 Bot，不用于隐藏目标实时跟踪。
 - `RouteSegment` 对照 `paths` 可检查缓存复用；`SearchRetry` 最多每个搜索区域一次额外轮次，新区域或重新接管会重建搜索会话。候选尝试及请求失败不是独立 Bot 数量。
-- `TIMING` 新增 `ActionAim/ActionAimClear/ActionSearch/ActionMove/ActionEvade/ActionRecovery/ActionPosture`。现在 `ActionTotalMs` 是拆分后的父阶段剩余独占成本，不能单独与旧版整个 Action 阶段比较；累计总量或同一帧全部独占阶段可相加，独立峰值不能相加。
+- `TIMING` 包含 `ActionAim/ActionAimClear/ActionSearch/ActionMove/ActionEvade/ActionRecovery/ActionPosture/ActionGrenade`。现在 `ActionTotalMs` 是拆分后的父阶段剩余独占成本，不能单独与旧版整个 Action 阶段比较；累计总量或同一帧全部独占阶段可相加，独立峰值不能相加。
+- `SUMMARY.grenadeTrajectories` 记录实际取得全局轨迹额度的次数；`GrenadeAttempted/GrenadeThrown/GrenadeRejected` 区分检查、原生接受与拒绝。无手雷、过旧线索和预算排队不等于实际轨迹调用，不能用它们推算投掷率。
 - `SOUND_SAVED` 的 `kind=gunshot/step`、`band=Close/Search`、`distance/error/ttl` 分别用于核对来源、枪声距离段、事件距离、定位半径与寿命；脚步的 `band` 字段不代表套用枪声分段。120 米外枪声会增加 `FarGunshotIgnored`。
 - `Deactivated/Reactivated` 统计活动边沿；`ResourceReleased` 统计真正消费清理责任的次数，包括自有控制与原生层射击请求，因此不要求它与 `ControlReleased` 相等。稳定停用期不应持续增加这些计数。
 - `DecisionServed` 为实际开始的到期决策数，`DecisionForced` 为超出 40% 软阈值后执行的保障次数，`DecisionDelayed` 为迟到超过 100 毫秒的执行次数。

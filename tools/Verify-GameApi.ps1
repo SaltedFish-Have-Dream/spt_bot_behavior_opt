@@ -55,6 +55,26 @@ try {
     Assert-ApiMethod $apiGame 'BotFirstAid' 'ApplyToSelf' 'System.Void' @('System.Nullable`1<System.Int32>', 'System.Action') # 原生治疗。
     Assert-ApiMethod $apiGame 'BotAimingData' 'get_Status' 'AimStatus' @() # 已清空瞄准时跳过重复原生调用。
     Assert-ApiMethod $apiGame 'BotMover' 'get_DistDestination' 'System.Single' @() # 到达必须同时验证导航剩余距离。
+    Assert-ApiMethod $apiGame 'BotGrenadeController' 'get_HaveGrenade' 'System.Boolean' @() # 战术投掷只在原生确有手雷时执行。
+    Assert-ApiMethod $apiGame 'BotGrenadeController' 'get_ReadyToThrow' 'System.Boolean' @() # 原生就绪状态不能被本模组绕过。
+    Assert-ApiMethod $apiGame 'BotGrenadeController' 'get_MaxPower' 'System.Single' @() # 轨迹求解沿用游戏实际投掷能力。
+    Assert-ApiMethod $apiGame 'BotGrenadeController' 'SetThrowData' 'System.Boolean' @('AIGreanageThrowData') # 拒绝无效原生投掷数据。
+    Assert-ApiMethod $apiGame 'BotGrenadeController' 'DoThrow' 'System.Boolean' @() # 动画和物品切换交给原生。
+    Assert-ApiMethod $apiGame 'AIData' 'SetAim' 'System.Void' @('System.Boolean') # 战斗 ADS 仍调用当前版本的原生控制器。
+    Assert-ApiMethod $apiGame 'AIGreanageThrowData' 'IsUpToDate' 'System.Boolean' @() # 不使用原生认为已过期的轨迹。
+    $apiTrajectoryFound = $false # 静态轨迹方法存在重载，单独按六参数精确核对。
+    foreach ($apiType in $apiGame.Types) { # 只读目标程序集元数据。
+        if ($apiType.FullName -ne 'AIGrenadeHelper') { continue } # 忽略同名或无关类型。
+        foreach ($apiMethod in $apiType.Methods) { # 搜索目标静态方法的指定重载。
+            if ($apiMethod.Name -ne 'CanThrowGrenade2' -or -not $apiMethod.IsPublic -or -not $apiMethod.IsStatic -or $apiMethod.ReturnType.FullName -ne 'AIGreanageThrowData' -or $apiMethod.Parameters.Count -ne 6) { continue } # 参数数量和返回值首先匹配。
+            $apiThrowTypes = @('UnityEngine.Vector3', 'UnityEngine.Vector3', 'System.Single', 'AIGreandeAng', 'System.Single', 'System.Single') # 与本插件实际调用签名一致。
+            $apiTrajectoryFound = $true # 逐个参数发现不符时再撤销匹配。
+            for ($apiIndex = 0; $apiIndex -lt $apiThrowTypes.Count; $apiIndex++) { if ($apiMethod.Parameters[$apiIndex].ParameterType.FullName -ne $apiThrowTypes[$apiIndex]) { $apiTrajectoryFound = $false; break } } # 拒绝碰巧同参数数量的其他重载。
+            if ($apiTrajectoryFound) { $apiVerified.Add($apiMethod.FullName); break } # 一致后记录精确签名。
+        }
+        break # 已检查唯一目标类型，无需遍历剩余程序集类型。
+    }
+    if (-not $apiTrajectoryFound) { throw '缺少匹配的原生战术手雷轨迹接口。' } # 不发布可能运行时调用错误的版本。
     Assert-ApiMethod $apiBrain 'DrakiaXYZ.BigBrain.Brains.CustomLayer' 'Start' 'System.Void' @() # 跟踪实际选中层而非候选激活条件。
     Assert-ApiMethod $apiBrain 'DrakiaXYZ.BigBrain.Brains.CustomLayer' 'Stop' 'System.Void' @() # 原生抢占后撤销选择标记。
     $apiLimitPath = Join-Path $GameRoot 'BepInEx\plugins\dvize.AILimit.dll' # 只验证已安装且明确匹配的可选依赖。

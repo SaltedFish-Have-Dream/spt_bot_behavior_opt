@@ -18,10 +18,11 @@ public sealed class ReactionGate
         else if (double.IsPositiveInfinity(_aimAt)) _aimAt = now; // 武器首次就绪时开始稳定计时。
     }
 
-    /// <summary>两个准备过程都结束后才允许射击，原生射击条件仍需单独检查。</summary>
-    public bool CanFire(in SkillProfile profile, double now, float familiarFactor = 1f)
+    /// <summary>首次发现并行等待反应和武器准备；已经就绪的同位置再露头可省略重复计时，原生瞄准另查。</summary>
+    public bool CanFire(in SkillProfile profile, double now, float familiarFactor = 1f, bool readyOnRepeek = false)
     {
         if (float.IsNaN(familiarFactor) || familiarFactor < 0.8f || familiarFactor > 1f) familiarFactor = 1f; // 不允许调用者取消或放大等级门槛。
+        if (readyOnRepeek && _target != null && now >= _seenAt && _aimAt <= _seenAt) return true; // 仅武器在重新目视起点就绪且此后未中断时，才跳过重复的模组计时。
         return _target != null && now >= Math.Max(_seenAt + profile.ReactionSeconds * familiarFactor, _aimAt + profile.AimSeconds * familiarFactor); // 两项等待并行，原生瞄准就绪仍须单独通过。
     }
 

@@ -43,6 +43,14 @@ public sealed class EngagementFootwork
         return AdaptiveMovement.TrySideStep(origin, player, _side, out point); // 真正可达性继续由共享完整路径查询验证。
     }
 
+    /// <summary>一至六米贴脸交战持续半秒后，尝试一次与侧移共用名额的三米后撤。</summary>
+    public bool TryPlanCloseRetreat(bool allowed, Vector3 origin, Vector3 player, double now, out Vector3 point)
+    {
+        point = default; // 条件未满足时不返回旧候选。
+        if (!allowed || _used || _identity == null || double.IsNaN(now) || double.IsInfinity(now) || now < _lastVisibleAt || now - _lastVisibleAt > 0.35 || now - _engagedAt < 0.5) return false; // 必须保有当前个人视觉和稳定交战窗口。
+        return AdaptiveMovement.TryBackStep(origin, player, out point); // 一至六米门槛及有限坐标在纯逻辑层统一验证。
+    }
+
     /// <summary>成功排队后消耗本交战窗口名额，不能每帧重新规划。</summary>
     public void MarkRequested()
     {

@@ -41,6 +41,36 @@ internal static partial class Program
         Check(!awareness.IsPrimed("player") && awareness.MarkLost(30.1), "target switch fresh context"); // 新目标独立计时。
     }
 
+    /// <summary>只有遮挡前已完成反应准备的同目标短时再露头，才可跳过重复的模组等待。</summary>
+    private static void ReadyRepeekFire()
+    {
+        var awareness = new RecentSightAwareness(); // 视觉资格仅保存固定身份和旧位置。
+        var gate = new ReactionGate(); // 开火门仍要求当前重新可见且武器就绪。
+        SkillProfile skill = SkillProfile.Create(BotRole.Pmc, 1); // 最慢等级更容易暴露重复等待问题。
+        awareness.ObserveVisible("player", Vector3.Zero, 10); // 第一次个人视觉建立合法旧出口。
+        gate.Update("player", true, true, 10); // 初见时未完成原有准备。
+        Check(awareness.MarkLost(10.1, gate.CanFire(skill, 10.1)), "early loss can arm watch"); // 守点资格不等于已经锁定射击。
+        gate.Update("player", false, true, 10.1); // 失视后立即撤销当前射击许可。
+        Check(awareness.TryReacquire("player", Vector3.Zero, 10.2) && !awareness.CanFireOnRepeek("player"), "unready target cannot fast fire"); // 短暂初见仍需等级等待。
+        gate.Update("player", true, true, 10.2); // 重新露头形成新的个人视觉窗口。
+        Check(!gate.CanFire(skill, 10.2, 0.8f, awareness.CanFireOnRepeek("player")), "unready repeek still reacts"); // 原有八成准备规则保持。
+        awareness.ObserveVisible("player", Vector3.Zero, 12); // 第二次连续可见已跨过完整反应时间。
+        gate.Update("player", true, true, 12); // 连续目视不重置门槛。
+        Check(gate.CanFire(skill, 12), "previous exposure fully acquired"); // 只把真正完成准备的状态带入遮挡边沿。
+        Check(awareness.MarkLost(12.1, gate.CanFire(skill, 12.1)), "ready loss arms fast reacquisition"); // 保存已就绪事实，不保存射击许可。
+        gate.Update("player", false, true, 12.1); // 遮挡期间绝不能射击。
+        Check(!gate.CanFire(skill, 12.15, 0.8f, true), "hidden target cannot fire even with flag"); // 门内目标已撤销。
+        Check(awareness.TryReacquire("player", new Vector3(5, 0, 0), 12.2) && awareness.CanFireOnRepeek("player"), "same-area ready repeek primed"); // 新视觉必须在六米和八秒边界内。
+        gate.Update("player", true, true, 12.2); // 当前武器与目标重新确认。
+        Check(gate.CanFire(skill, 12.2, 0.8f, awareness.CanFireOnRepeek("player")), "ready same-area repeek avoids duplicate wait"); // 原生瞄准和射线仍由客户端检查。
+        gate.Update("player", true, false, 12.21); // 换弹时武器失去就绪。
+        Check(!gate.CanFire(skill, 12.21, 0.8f, awareness.CanFireOnRepeek("player")), "weapon not ready blocks fast repeek"); // 快速资格不能越过武器状态。
+        gate.Update("player", true, true, 12.22); // 武器恢复后应重新稳定，而非继续使用旧模式的准备资格。
+        Check(!gate.CanFire(skill, 12.22, 0.8f, awareness.CanFireOnRepeek("player")), "weapon change revokes immediate fast fire"); // 原生换弹与切枪仍有等级准备等待。
+        awareness.Clear(); // 离开玩家情境清除身份与时间窗口。
+        Check(!awareness.CanFireOnRepeek("player"), "context clears fast repeek"); // 不能跨目标或战局复用。
+    }
+
     /// <summary>守点动作保留危险与恢复优先级，再发现仍遵守等级和原生准备门槛。</summary>
     private static void WatchDecisionAndReaction()
     {

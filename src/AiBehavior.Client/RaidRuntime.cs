@@ -68,6 +68,7 @@ public sealed class RaidRuntime : IDisposable
     internal WorkBudget Paths;
     internal WorkBudget Samples;
     internal WorkBudget Overlaps;
+    internal WorkBudget GrenadeTrajectories = new(1, 1);
     internal long BlockedShots;
     internal long RayCalls;
     internal long CompletedQueries;
@@ -94,19 +95,29 @@ public sealed class RaidRuntime : IDisposable
     {
         if (!PlayerHitsEnabled || !GameAdapter.IsLocalPlayer(player) || victim == null) return; // AI 伤害和已降级入口不能唤醒全组。
         RememberPlayer(player); // 保存来源供后续玩家存活检查。
+        BotAgent? victimAgent = null; // 受害者仍可在没有合格队友时按原规则独自推进。
         if (TryGet(victim, out BotAgent agent)) // Boss 自身保留原生，但其同组受管成员可以收到通知。
         {
+            victimAgent = agent; // 只在本人已注册时保存轻量引用。
             try { agent.ObserveDanger(origin, now, "hit"); } // 直接命中不受普通告警额度影响。
             catch (Exception exception) { Fail(agent, exception); } // 单体失败交还原生。
         }
         if (!_friendAlerts.TryTake(now, Time.frameCount)) { _friendAlertsSuppressed++; return; } // 霰弹和连射最多每秒四次传播，合并数量进入日志。
+        SquadAdvanceChoice choice = default; // 全组近邻在同一轮固定值比较中只选一名，不分配集合。
         for (int index = _agents.Count - 1; index >= 0; index--) // 只遍历注册列表，不搜索场景。
         {
             BotAgent friend = _agents[index]; // 接受者不会再次转发。
             if (friend.Owner == victim || friend.Owner == null || friend.Owner.BotState != EBotState.Active || friend.Owner.IsDead) continue; // 失活成员不积压动作。
-            if (victim.BotsGroup == null || !victim.BotsGroup.Contains(friend.Owner) || (friend.Owner.Position - victim.Position).sqrMagnitude > 400) continue; // 只通知同组近邻。
+            float distanceSquared = (friend.Owner.Position - victim.Position).sqrMagnitude; // 一次平方距离供范围与推进者选择共用。
+            if (victim.BotsGroup == null || !victim.BotsGroup.Contains(friend.Owner) || distanceSquared > 400) continue; // 只通知同组近邻。
             try { friend.ObserveDanger(origin, now, "ally-hit"); } // 每个成员形成自己的估计区域。
             catch (Exception exception) { Fail(friend, exception); } // 单体失败不阻断剩余通知。
+            if (Options.CoordinatedAdvance && !friend.Disposed) choice.Consider(friend.Id, friend.Participating, friend.CanLeadSquadAdvance, distanceSquared); // 已告警且有行动能力的近邻竞争单个名额。
+        }
+        if (choice.SelectedId != 0 && _byId.TryGetValue(choice.SelectedId, out BotAgent? leader)) // 没有合格队友时受害者沿用原有五秒推进规则。
+        {
+            leader.SelectSquadAdvance(true, now); // 只在一名队友上恢复推进资格。
+            victimAgent?.SelectSquadAdvance(false, now); // 本人先守掩体或恢复，不与队友同时冲向同一点。
         }
     }
 
@@ -179,8 +190,8 @@ public sealed class RaidRuntime : IDisposable
         _byOwner.Add(owner, agent); // 保存供补丁使用的直接索引。
         _byId.Add(agent.Id, agent); // 保存供查询结果验证的生命周期索引。
         _agents.Add(agent); // 加入共享调度序列。
-        if (Diagnostics.Record(DiagnosticEvent.Registered, agent, now)) Diagnostics.Write("REGISTERED", agent.Id, now, FormattableString.Invariant($"role={owner.Profile.Info.Settings.Role} brain={brain} level={owner.Profile.Info.Level} reaction={agent.Skill.ReactionSeconds:F3} aim={agent.Skill.AimSeconds:F3}")); // 注册只能证明上下文存在，不能替代实际动作证据。
-        if (Options.TraceBots) Log.LogInfo($"注册 {agent.Id} role={owner.Profile.Info.Settings.Role} brain={brain} level={owner.Profile.Info.Level} reaction={agent.Skill.ReactionSeconds:F3} aim={agent.Skill.AimSeconds:F3}"); // 诊断默认关闭。
+        if (Diagnostics.Record(DiagnosticEvent.Registered, agent, now)) Diagnostics.Write("REGISTERED", agent.Id, now, FormattableString.Invariant($"role={owner.Profile.Info.Settings.Role} brain={brain} level={owner.Profile.Info.Level} temperament={agent.Temperament} reaction={agent.Skill.ReactionSeconds:F3} aim={agent.Skill.AimSeconds:F3}")); // 注册记录固定风格，不能替代实际动作证据。
+        if (Options.TraceBots) Log.LogInfo($"注册 {agent.Id} role={owner.Profile.Info.Settings.Role} brain={brain} level={owner.Profile.Info.Level} temperament={agent.Temperament} reaction={agent.Skill.ReactionSeconds:F3} aim={agent.Skill.AimSeconds:F3}"); // 诊断默认关闭。
     }
 
     /// <summary>读取有效上下文，不在高频补丁中搜索场景或反射。</summary>
@@ -317,7 +328,7 @@ public sealed class RaidRuntime : IDisposable
             }
         }
         double tickMs = 1000d / Stopwatch.Frequency; // 所有阶段和总量使用相同换算。
-        Diagnostics.Write("SUMMARY", 0, now, FormattableString.Invariant($"AI汇总 reason={reason} elapsed={now - Diagnostics.StartedAt:F1} bots={_agents.Count} active={active} inactive={_agents.Count - active} controlled={controlled} visible={visible} states={string.Join(",", states)} workFrames={_profiler.Frames} workAvgMs={(_profiler.Frames == 0 ? 0 : _profiler.TotalFrameTicks * tickMs / _profiler.Frames):F3} workPeakMs={_profiler.PeakFrameTicks * tickMs:F3} overBudgetFrames={_profiler.OverBudgetFrames} decisionDue={due} decisionOldestDueMs={oldestDue * 1000:F1} decisionWaitAvgMs={(_decisionCount == 0 ? 0 : _decisionWaitSum * 1000 / _decisionCount):F1} decisionWaitMaxMs={_maxDecisionWait * 1000:F1} rayTokens={Rays.TotalUsed} rayCalls={RayCalls} paths={Paths.TotalUsed} samples={Samples.TotalUsed} overlaps={Overlaps.TotalUsed} pending={Queue.Count} expired={Queue.Expired} rejected={Queue.Rejected} queriesOk={CompletedQueries} queriesFailed={FailedQueries} shotPending={ShotQueue.Count} shotExpired={ShotQueue.Expired} shotWaitMaxMs={MaxShotWait * 1000:F1} blockedShots={BlockedShots} transitions={StateChanges}")); // 帧总量统计到上一已结束帧，不能视为完整游戏帧时间。
+        Diagnostics.Write("SUMMARY", 0, now, FormattableString.Invariant($"AI汇总 reason={reason} elapsed={now - Diagnostics.StartedAt:F1} bots={_agents.Count} active={active} inactive={_agents.Count - active} controlled={controlled} visible={visible} states={string.Join(",", states)} workFrames={_profiler.Frames} workAvgMs={(_profiler.Frames == 0 ? 0 : _profiler.TotalFrameTicks * tickMs / _profiler.Frames):F3} workPeakMs={_profiler.PeakFrameTicks * tickMs:F3} overBudgetFrames={_profiler.OverBudgetFrames} decisionDue={due} decisionOldestDueMs={oldestDue * 1000:F1} decisionWaitAvgMs={(_decisionCount == 0 ? 0 : _decisionWaitSum * 1000 / _decisionCount):F1} decisionWaitMaxMs={_maxDecisionWait * 1000:F1} rayTokens={Rays.TotalUsed} rayCalls={RayCalls} paths={Paths.TotalUsed} samples={Samples.TotalUsed} overlaps={Overlaps.TotalUsed} grenadeTrajectories={GrenadeTrajectories.TotalUsed} pending={Queue.Count} expired={Queue.Expired} rejected={Queue.Rejected} queriesOk={CompletedQueries} queriesFailed={FailedQueries} shotPending={ShotQueue.Count} shotExpired={ShotQueue.Expired} shotWaitMaxMs={MaxShotWait * 1000:F1} blockedShots={BlockedShots} transitions={StateChanges}")); // 帧总量统计到上一已结束帧，不能视为完整游戏帧时间。
         var phases = new StringBuilder(1024); // 仅每次低频汇总分配一次固定规模缓冲。
         for (int index = 0; index < (int)WorkPhase.Count; index++) // 阶段数量固定，不为每个 Bot 建立计时表。
             phases.Append(FormattableString.Invariant($" {((WorkPhase)index)}TotalMs={_profiler.TotalTicks[index] * tickMs:F3} {((WorkPhase)index)}Calls={_profiler.Calls[index]} {((WorkPhase)index)}CallPeakMs={_profiler.PeakCallTicks[index] * tickMs:F3} {((WorkPhase)index)}AtPeakMs={_profiler.PeakFramePhases[index] * tickMs:F3}")); // 独占总量与包含子调用的单次峰值明确分开。
@@ -419,6 +430,7 @@ public sealed class RaidRuntime : IDisposable
         Paths = new WorkBudget(Options.PathRate, 1); // 不继承上一局的额度时间戳。
         Samples = new WorkBudget(Options.SampleRate, 3); // 重置采样统计。
         Overlaps = new WorkBudget(Options.OverlapRate, 1); // 重置局部扫描统计。
+        GrenadeTrajectories = new WorkBudget(1, 1); // 每局重新建立战术手雷的全局轨迹额度。
         _decisions = new DecisionScheduler(); // 恢复轮转起点。
         _profiler = new WorkProfiler(); // 不跨局保留阶段或峰值。
         _maxDecisionWait = _decisionWaitSum = _nextSummary = 0; // 清空时间汇总。

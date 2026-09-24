@@ -51,7 +51,8 @@ public sealed class ThreatMemory
             if (_items[index].Identity != observation.Identity) continue; // 只合并相同来源对象。
             if (observation.ObservedAt <= _items[index].ObservedAt) return false; // 旧观察不能覆盖新观察。
             if (observation.Source == ObservationSource.Hearing && observation.ObservedAt - _items[index].ObservedAt < 1) return false; // 合并枪声风暴，且不覆盖新鲜视觉。
-            _items[index] = observation; // 更新同一威胁的值快照。
+            double expiresAt = Math.Max(observation.ExpiresAt, _items[index].ExpiresAt); // 新声音可以更新估计区域，却不能缩短同一目标已经取得的有效记忆。
+            _items[index] = expiresAt == observation.ExpiresAt ? observation : new Observation(observation.Identity, observation.Source, observation.Position, observation.ObservedAt, expiresAt, observation.Uncertainty, observation.AimPosition); // 保留新证据的位置与来源，同时维持原期限。
             return true; // 不增加额外记录。
         }
         slot = slot < 0 ? oldest : slot; // 无空槽时执行固定容量淘汰。

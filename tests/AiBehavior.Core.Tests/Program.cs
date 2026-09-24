@@ -20,6 +20,9 @@ internal static partial class Program
             MemoryCapacityAndExpiry(); // 检查内存有界与精确过期边界。
             MemorySoundStorm(); // 检查重复声音不能刷新寿命和位置。
             MemorySnapshots(); // 检查坐标、瞄准与时间均为值快照。
+            CombatMemorySameFloor(); // 检查持续同层近战有足够搜索记忆且远距、跨层沿用原值。
+            CombatMemorySoundDoesNotShorten(); // 检查脚步更新区域但不提前擦除此前的视觉记忆。
+            CheckedCombatAreaHoldsUntilExpiry(); // 检查三点搜完后守点仍按原视觉线索期限准确退出。
             InvalidObservations(); // 检查无效坐标和无限时间被拒绝。
             ReactionParallel(); // 检查反应和准备并行而非串行相加。
             ReactionLossAndWeaponChange(); // 检查遮挡、换目标和换弹的重置。
@@ -42,6 +45,8 @@ internal static partial class Program
             GunshotAccuracy(); // 检查距离、等级和固定角色的定位误差。
             PlayerDangerWindow(); // 检查真实危险刷新与五秒后有限推进。
             PlayerDangerInvalidAndClose(); // 检查无效来源和近枪不能延长危险。
+            ProneRequiresPersonalHitAndLostSight(); // 检查对枪、近弹与队友受击不能触发主动卧倒。
+            VisibleDuelProneOwnership(); // 检查仅撤销接管后出现的交火卧姿。
             PlayerDangerDecisions(); // 检查紧急避险、低血量和缺弹的优先级。
             SegmentedSearch(); // 检查远距搜索步长、有限寿命和不可超越目标。
             BulletCollisionGeometry(); // 检查擦弹、弹着点和墙后线段外的排除。
@@ -81,11 +86,26 @@ internal static partial class Program
             SearchFailureMemoryBoundaries(); // 检查固定容量、空间范围和到期恢复。
             SightWatchWindow(); // 检查失视守点只使用最后真实视觉快照。
             RepeekBoundaries(); // 检查同区域再次探头的身份、距离和时效。
+            ReadyRepeekFire(); // 检查只有曾经真正完成准备的再次露头可快速还击。
             WatchDecisionAndReaction(); // 检查危险优先级与等级反应边界。
             FootworkStableEngagement(); // 检查近距交战稳定后只提出一次候选。
             FootworkDistanceAndSightBounds(); // 检查近远距离和短暂失视边界。
             FootworkOtherRepositionAndLifecycle(); // 检查挡枪换位去重与目标清理。
-            Console.WriteLine($"PASS: 71 scenarios, {_assertions} assertions."); // 输出实际验证数量。
+            CloseRangeRetreatBoundaries(); // 检查贴脸后撤的视觉、安全和距离边界。
+            CloseRangeRetreatSharedSlot(); // 检查后撤、侧移和挡枪换位共用单次名额。
+            CombatTemperamentBoundaries(); // 检查固定角色、PMC 风格和概率边界。
+            CombatTemperamentDecision(); // 检查风格差异与危险优先级。
+            CombatFireModeBoundaries(); // 检查武器支持集与距离迟滞。
+            SquadAdvanceSelectsOne(); // 检查近邻受击只有一名合格推进者。
+            SquadAdvanceRejectsInvalid(); // 检查非法、过远成员和空候选回退。
+            SquadAdvanceNonLeaderHolds(); // 检查未获名额者原地观察，目视玩家后仍可交战。
+            ExposedReturnFireBoundaries(); // 检查无掩体自卫不会越过避险、姿态和高压限制。
+            CombatRushRequiresPersonalSight(); // 检查短距突击的角色、等级、视觉和安全边界。
+            CombatAmbushAndShiftExpire(); // 检查脚步伏击和掩体换位都按来源及时间退出。
+            CombatGrenadeRejectsUnsafeClues(); // 检查手雷旧点、距离、同层及危险门槛。
+            CombatTacticDecisionPriority(); // 检查新战术不会抢占避险、恢复和真实可见交火。
+            CombatAimDistanceHysteresis(); // 检查贴脸腰射与远距举枪的迟滞和非法输入。
+            Console.WriteLine($"PASS: 91 scenarios, {_assertions} assertions."); // 输出实际验证数量。
             return 0;
         }
         catch (Exception exception) // 明确报告失败而不是继续生成包。

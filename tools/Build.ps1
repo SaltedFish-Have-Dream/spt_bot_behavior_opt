@@ -36,7 +36,7 @@ try {
     $buildProjects = @('src\AiBehavior.Client\AiBehavior.Client.csproj', 'tests\AiBehavior.Core.Tests\AiBehavior.Core.Tests.csproj') # 完整客户端与独立行为检查都必须通过。
     foreach ($buildRelative in $buildProjects) {
         $buildProject = Join-Path $projectRoot $buildRelative # 使用绝对路径，不依赖调用目录。
-        & $sdkExecutable restore $buildProject --configfile (Join-Path $projectRoot 'NuGet.Config') "-p:GameRoot=$GameRoot" --verbosity minimal # 显式使用本项目源配置。
+        & $sdkExecutable restore $buildProject --configfile (Join-Path $projectRoot 'NuGet.Config') "-p:GameRoot=$GameRoot" '-p:NuGetAudit=false' --verbosity minimal # 离线缓存可用时跳过联网漏洞元数据查询，仍核对包与编译依赖。
         if ($LASTEXITCODE -ne 0) { throw "还原失败：$buildRelative" } # 还原失败时禁止使用旧输出打包。
         & $sdkExecutable build $buildProject -c Release --no-restore --disable-build-servers '-p:UseSharedCompilation=false' "-p:GameRoot=$GameRoot" --verbosity minimal # 构建真实自有工程。
         if ($LASTEXITCODE -ne 0) { throw "编译失败：$buildRelative" } # 所有警告按错误处理。
@@ -61,9 +61,14 @@ try {
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.6-adaptive-navigation.md') -Destination (Join-Path $packageStage 'adaptive-navigation.md') # 附带新导航反馈和复测步骤。
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.7-repeek-awareness.md') -Destination (Join-Path $packageStage 'repeek-awareness.md') # 附带失视守点与再识别的实测边界。
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.8-combat-footwork.md') -Destination (Join-Path $packageStage 'combat-footwork.md') # 附带主动侧移规则、SAIN 对照与实测检查。
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.9-close-range-control.md') -Destination (Join-Path $packageStage 'close-range-control.md') # 附带贴脸后撤、共享名额与实测链路。
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.2.0-sain-combat-adaptation.md') -Destination (Join-Path $packageStage 'sain-combat-adaptation.md') # 附带自主实现范围、性能边界与新版实测链路。
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.2.1-fire-response.md') -Destination (Join-Path $packageStage 'fire-response.md') # 附带再露头还击、自卫窗口和新的等待诊断。
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.2.2-prone-and-memory.md') -Destination (Join-Path $packageStage 'prone-and-memory.md') # 附带本次趴伏边界与同层交战记忆的复测流程。
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.3.0-combat-tactics.md') -Destination (Join-Path $packageStage 'combat-tactics.md') # 附带 SAIN 战斗行为对应关系、性能边界与局内验证流程。
         $distributionRoot = Join-Path $projectRoot 'dist' # 发布文件保存在 Git 忽略目录。
         New-Item -ItemType Directory -Path $distributionRoot -Force | Out-Null # 不修改游戏安装。
-        $packageArchive = Join-Path $distributionRoot 'AiBehaviorOpt-0.1.8.zip' # 固定版本产物便于安装。
+        $packageArchive = Join-Path $distributionRoot 'AiBehaviorOpt-0.3.0.zip' # 固定版本产物便于安装。
         Compress-Archive -Path (Join-Path $packageStage '*') -DestinationPath $packageArchive -Force # 只压缩本次新建的暂存目录。
         Get-FileHash -LiteralPath $packageArchive -Algorithm SHA256 # 输出校验值供交付追溯。
     }
