@@ -79,7 +79,10 @@ internal static partial class Program
             EscapeFallbackBoundaries(); // 检查贴近危险、两次撤离和冷却结束。
             BlockedShotRepositionBoundaries(); // 检查目标切换、零星阻挡和两侧限额。
             SearchFailureMemoryBoundaries(); // 检查固定容量、空间范围和到期恢复。
-            Console.WriteLine($"PASS: 65 scenarios, {_assertions} assertions."); // 输出实际验证数量。
+            SightWatchWindow(); // 检查失视守点只使用最后真实视觉快照。
+            RepeekBoundaries(); // 检查同区域再次探头的身份、距离和时效。
+            WatchDecisionAndReaction(); // 检查危险优先级与等级反应边界。
+            Console.WriteLine($"PASS: 68 scenarios, {_assertions} assertions."); // 输出实际验证数量。
             return 0;
         }
         catch (Exception exception) // 明确报告失败而不是继续生成包。

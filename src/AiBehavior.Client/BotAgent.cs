@@ -32,6 +32,8 @@ internal sealed class BotAgent : IDisposable
     private readonly EscapeFallback _escapeFallback = new();
     private readonly BlockedShotFeedback _blockedShots = new();
     private readonly SearchFailureMemory _failedSearch = new();
+    private readonly RecentSightAwareness _recentSight = new();
+    private bool _watchLookIssued;
     private PressureLevel _reportedPressure;
     private double _nextSoundSnapshot;
     private double _nextGunshotSnapshot;
@@ -129,7 +131,9 @@ internal sealed class BotAgent : IDisposable
     /// <summary>真人当前目标才接受射击门控，近距枪声只豁免新增等待、不豁免原生条件。</summary>
     private bool ReadyToReact(double now)
     {
-        return now < _playerDanger.CloseAlertUntil || Gate.CanFire(Skill, now);
+        EnemyInfo? enemy = Owner.Memory.GoalEnemy; // 熟悉优势只作用于当前真正可见的本机真人。
+        float factor = Controlled && LayerSelected && _visible && GameAdapter.IsPlayerTarget(enemy) && _recentSight.IsPrimed(enemy!.ProfileId) ? 0.8f : 1f; // 同一区域再次探头仍保留八成等级等待。
+        return now < _playerDanger.CloseAlertUntil || Gate.CanFire(Skill, now, factor); // 近距枪声的原有快速警戒优先。
     }
 
     /// <summary>紧急掩体使用最后危险方向，普通战斗使用合法观察快照。</summary>
@@ -280,6 +284,8 @@ internal sealed class BotAgent : IDisposable
         UpdatePressure(now); // 新命中或连续近弹立即更新等级。
         if (reason == "hit") RejectHitCover(now); // 只有玩家直接命中能封锁已到达的掩体。
         _searchPacing.Cancel(); // 紧急危险不等待搜索停看结束。
+        _recentSight.Clear(); // 受击避险立即放弃旧出口的守点与再发现优惠。
+        _watchLookIssued = false; // 下次真实失视才能开始新的守点窗口。
         if (entering) { _coverUnavailable = false; _retryAt = now; _escapeFallback.StartDanger(); } // 新一轮危险允许尽快查询一次局部掩体和有限撤离。
         _blockedShots.ClearStreak(); // 避险期间不继承交战时的连续挡枪记录。
         Memory.Observe(new Observation(Runtime.LocalPlayer.ProfileId, ObservationSource.Danger, GameAdapter.Snapshot(estimate), now, _playerDanger.SearchUntil, error), now); // 保存有限的接近区域。
@@ -309,6 +315,8 @@ internal sealed class BotAgent : IDisposable
         _searchPacing.Cancel(); // 交回 AI 互战后不保留活动停看窗口，但同区域次数不会退款。
         _pressure.Clear(); // 玩家情境退出后不继续保留受压行为。
         _blockedShots.Clear(); // 下次独立接敌可以重新判断枪线。
+        _recentSight.Clear(); // 旧玩家视觉不能带入新情境。
+        _watchLookIssued = false; // 新情境的守点必须重新确认视觉边沿。
         _reportedPressure = PressureLevel.Calm; // 新玩家情境的第一次高压应重新形成日志边沿。
     }
 
@@ -326,6 +334,8 @@ internal sealed class BotAgent : IDisposable
                 _visible = _hasClue = _recoveryRunning = false; // 汇总和恢复不能沿用停用前的缓存结论。
                 Participating = false; // 停用 Bot 不参与增强调度。
                 _searchIdentity = null; // 恢复后重新验证搜索起点。
+                _recentSight.Clear(); // 停用期间不能保留短时再次探头优势。
+                _watchLookIssued = false; // 恢复后重新等待真实视觉。
                 _policy.Reset(); // 清除停用前的动作承诺。
                 if (State != BehaviorState.Native) Runtime.StateChanges++; // 停用迁移也保留总量。
                 State = BehaviorState.Native; // BigBrain 下一次层检查可以交还原生。
@@ -345,7 +355,7 @@ internal sealed class BotAgent : IDisposable
         bool playerClue = Memory.TryGetLatest(now, out _) || _lastGunshot.ExpiresAt > now || _playerDanger.CanAdvance(now); // 独立保留枪声原寿命，仍不访问隐藏坐标。
         if (!PlayerThreatPolicy.ShouldManage(active, playerAlive, enemy != null && !playerTarget, playerTarget, playerClue, _playerDanger.IsActive(now))) // AI 互战只有玩家紧急危险可短时打断。
         {
-            if (!playerAlive && (playerClue || _playerDanger.SearchUntil > 0)) { Memory.Clear(); _lastGunshot = default; _playerDanger.Clear(); _failedCovers.Clear(); _failedSearch.Clear(); _blockedShots.Clear(); _searchPacing.Clear(); } // 玩家失效时一并清理事件值缓存。
+            if (!playerAlive && (playerClue || _playerDanger.SearchUntil > 0)) { Memory.Clear(); _lastGunshot = default; _playerDanger.Clear(); _failedCovers.Clear(); _failedSearch.Clear(); _blockedShots.Clear(); _recentSight.Clear(); _searchPacing.Clear(); } // 玩家失效时一并清理事件值缓存。
             LeavePlayerContext(now); // 不清除原生 AI 目标、不阻止原生瞄准或射击。
             return; // 不读取医疗、健康、不更新决策、不搜索掩体。
         }
@@ -373,10 +383,17 @@ internal sealed class BotAgent : IDisposable
         }
         if (_visible != visible) // 视线改变及时改变高层状态。
         {
+            if (_visible && !visible && _recentSight.MarkLost(now)) // 只在从真实可见转成不可见的边沿设定守点。
+            {
+                _watchLookIssued = false; // 此次守点尚未提交转向。
+                if (Trace(DiagnosticEvent.SightWatchArmed, now)) WriteTrace("SIGHT_WATCH_ARMED", now, "watchSeconds=1.25 repeekSeconds=8"); // 设定不等于已取得层控制。
+            }
+            if (!_visible && visible && _recentSight.TryReacquire(enemy?.ProfileId, sight.Position, now) && Trace(DiagnosticEvent.RepeekRecognized, now)) WriteTrace("REPEEK_RECOGNIZED", now, "sameAreaMeters=6 readinessFactor=0.8"); // 再次探头必须由新的个人视觉核实。
             NextDecision = Math.Min(NextDecision, now); // 保持原来的唤醒时机。
             if (Trace(DiagnosticEvent.SightChanged, now)) WriteTrace("SIGHT_CHANGED", now, $"visible={visible} shooting={Owner.ShootData.Shooting}"); // 只记录可见性边沿。
         }
         _visible = visible; // 记录本帧的个人视觉状态。
+        if (visible && enemy != null) _recentSight.ObserveVisible(enemy.ProfileId, sight.Position, now); // 只用本帧核实的视觉快照刷新已知位置。
         bool ready = Owner.WeaponManager.IsWeaponReady && Owner.WeaponManager.HaveBullets && !Owner.WeaponManager.Reload.Reloading; // 原生武器条件不被能力曲线覆盖。
         Gate.Update(enemy?.ProfileId, visible, ready, now); // 并行推进察觉和稳定计时。
         if (visible) _aimPoint = GameAdapter.Position(sight.AimPosition); // 两次原生视觉检查之间不追踪实时身体坐标。
@@ -444,6 +461,7 @@ internal sealed class BotAgent : IDisposable
             HasCover = _hasCover, AtCover = AtCover, UnderFire = underFire, LowHealth = lowHealth,
             CanMove = Role != BotRole.Marksman, ContextVersion = _contextVersion,
             PlayerDanger = underFire, AdvanceAfterDanger = _playerDanger.CanAdvance(now) && !underFire,
+            WatchLastSeen = _hasClue && _clue.Source == ObservationSource.Vision && _recentSight.CanWatch(_clue.Identity, now, out _), // 新声源覆盖旧视觉后不再守原出口。
             MovingToCover = Runtime.Options.CoverCommitment && MovingToCover // 明确记录执行中的合法路线，不能仅凭决策名称推断正在移动。
         };
         BehaviorState next = _policy.Decide(input, Skill, now, _decisionRoll); // 状态候选数与等级无关。
@@ -561,6 +579,18 @@ internal sealed class BotAgent : IDisposable
                 break;
             case BehaviorState.Observe:
             case BehaviorState.Engage:
+                if (!_visible && _hasClue && _clue.Source == ObservationSource.Vision && _recentSight.CanWatch(_clue.Identity, now, out System.Numerics.Vector3 watchPoint)) // 失视窗口只看已亲眼见过的固定位置。
+                {
+                    StopMotion(); // 守点短暂停留，不提交新寻路。
+                    StopAim(); // 隐藏玩家没有直接瞄准与射击许可。
+                    if (!_watchLookIssued) // 固定目标只需提交一次原生转向。
+                    {
+                        Owner.Steering.LookToPoint(GameAdapter.Position(watchPoint) + Vector3.up); // 看守旧出口，不读取玩家现在的坐标。
+                        _watchLookIssued = true; // 本窗口剩余帧不重复调用原生转向接口。
+                        if (Trace(DiagnosticEvent.SightWatchActive, now)) WriteTrace("SIGHT_WATCH_ACTIVE", now, "source=last-personal-vision"); // 区分已武装与实际动作。
+                    }
+                    break; // 守点时不进入 AimAndFire。
+                }
                 if (_moving && _pendingKind == QueryKind.Reposition && (Owner.Position - _destination).sqrMagnitude <= 1.44f && Owner.Mover.DistDestination <= 1.2f) // 换位必须走完短路线才能视为到达。
                 {
                     StopMotion(); // 结束本模组的换位路线，后续仍走正常瞄准验证。
@@ -1072,6 +1102,7 @@ internal sealed class BotAgent : IDisposable
         if (Disposed) return; // 保证重复销毁安全。
         _failedSearch.Clear(); // 场景对象销毁时不保留旧搜索位置。
         _blockedShots.Clear(); // 不跨 Bot 生命周期复用目标与额度。
+        _recentSight.Clear(); // 销毁时清空最后目击位置与短期资格。
         try { Release(reason: "dispose"); } // 尽量恢复原生动作参数。
         catch (Exception exception) { Runtime.Log.LogWarning($"Bot {Id} 清理时对象已失效：{exception.Message}"); } // 销毁过程仅记录一次。
         finally { Disposed = true; } // Release 已在游戏对象访问之前撤销队列，重复扫描没有必要。

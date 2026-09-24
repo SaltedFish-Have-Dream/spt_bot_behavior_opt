@@ -1,6 +1,6 @@
-# 0.1.6 实测日志说明
+# 0.1.7 实测日志说明
 
-关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.6` 和 `NAVIGATION_RULES`；本版新增撤离换位、挡枪侧移及失败搜索点跳过的证据。此前的压力、掩体、姿态和控制交接日志继续保留。
+关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.7`、`VISION_RULES` 和 `NAVIGATION_RULES`；本版新增失视守点及再次探头识别证据，之前的撤离换位、挡枪侧移、搜索失败点、压力和控制交接日志继续保留。
 
 ## 实测步骤
 
@@ -20,6 +20,9 @@
 | `PLAYER_RULES` | 本版运行模式、距离、危险时长和 Boss 范围 | `mode=local-human-only` 是固定模式，没有默认扩大至 AI 或远程玩家 |
 | `TACTICAL_RULES` | 四个战术开关及固定容量/时长配置 | 启动记录不代表对应行为已经执行 |
 | `NAVIGATION_RULES` | Waypoints 实际加载并进入本版导航规则 | 不代表地图所有位置都有完整可达路径 |
+| `VISION_RULES` | 本版个人视觉守点、同区域再识别时间与空间边界 | 启动配置不代表已实际触发 |
+| `SIGHT_WATCH_ARMED / SIGHT_WATCH_ACTIVE` | 真实失视后取得短期资格，以及实际执行向旧位置转向 | 不能证明已看见或瞄准隐藏玩家；已武装不等于已取得控制 |
+| `REPEEK_RECOGNIZED` | 再次真实看见同一玩家，且新位置靠近旧目击点 | 只缩短新增准备等待，仍需查射击许可和原生结果 |
 | `ESCAPE_REQUESTED / ESCAPE_ARRIVED` | 卧姿受阻后的有限短距撤离申请及实际到达 | `queued=False` 或只有查询成功均不代表实际位移 |
 | `REPOSITION_REQUESTED / REPOSITION_ARRIVED` | 连续世界障碍挡枪后申请侧移及到达 | 仍须核对目标真实可见、后续射击安全结果 |
 | `SEARCH_CANDIDATE_SKIPPED` | 十五秒内跳过近期确认不可达的搜索点 | 表示失败候选，不计作搜到玩家位置 |

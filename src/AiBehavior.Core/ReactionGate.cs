@@ -19,9 +19,10 @@ public sealed class ReactionGate
     }
 
     /// <summary>两个准备过程都结束后才允许射击，原生射击条件仍需单独检查。</summary>
-    public bool CanFire(in SkillProfile profile, double now)
+    public bool CanFire(in SkillProfile profile, double now, float familiarFactor = 1f)
     {
-        return _target != null && now >= Math.Max(_seenAt + profile.ReactionSeconds, _aimAt + profile.AimSeconds);
+        if (float.IsNaN(familiarFactor) || familiarFactor < 0.8f || familiarFactor > 1f) familiarFactor = 1f; // 不允许调用者取消或放大等级门槛。
+        return _target != null && now >= Math.Max(_seenAt + profile.ReactionSeconds * familiarFactor, _aimAt + profile.AimSeconds * familiarFactor); // 两项等待并行，原生瞄准就绪仍须单独通过。
     }
 
     /// <summary>在动作退出、死亡或视线丢失时撤销就绪状态。</summary>

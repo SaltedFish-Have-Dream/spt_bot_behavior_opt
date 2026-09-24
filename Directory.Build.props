@@ -4,7 +4,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
-    <Version>0.1.6</Version>
+    <Version>0.1.7</Version>
     <GameRoot Condition="'$(GameRoot)' == ''">$(MSBuildThisFileDirectory)..\..\EFT v4.1</GameRoot>
   </PropertyGroup>
   <Import Project="Directory.Build.local.props" Condition="Exists('Directory.Build.local.props')" />
