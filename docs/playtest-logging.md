@@ -1,6 +1,6 @@
-# 0.1.7 实测日志说明
+# 0.1.8 实测日志说明
 
-关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.7`、`VISION_RULES` 和 `NAVIGATION_RULES`；本版新增失视守点及再次探头识别证据，之前的撤离换位、挡枪侧移、搜索失败点、压力和控制交接日志继续保留。
+关键事件默认开启，日志位于游戏安装的 `BepInEx/LogOutput.log`。本机路径为 `E:\Games\Escape From Tarkof\EFT v4.1\BepInEx\LogOutput.log`。同时替换两个 DLL 并重启游戏，确认 `event=START version=0.1.8`、`COMBAT_RULES`、`VISION_RULES` 和 `NAVIGATION_RULES`；本版新增近距交战主动侧移证据，此前的失视守点、受阻换位、搜索失败点和压力日志继续保留。
 
 ## 实测步骤
 
@@ -21,6 +21,9 @@
 | `TACTICAL_RULES` | 四个战术开关及固定容量/时长配置 | 启动记录不代表对应行为已经执行 |
 | `NAVIGATION_RULES` | Waypoints 实际加载并进入本版导航规则 | 不代表地图所有位置都有完整可达路径 |
 | `VISION_RULES` | 本版个人视觉守点、同区域再识别时间与空间边界 | 启动配置不代表已实际触发 |
+| `COMBAT_RULES` | 主动侧移开关、距离与交战稳定窗口 | 启动配置不代表 Bot 实际取得控制或完成移动 |
+| `COMBAT_FOOTWORK_REQUESTED` | 近距目视交战中提出一次主动侧移并成功排队 | 仍须看查询成功、移动进度与到达，不能把排队当完成 |
+| `REPOSITION_ARRIVED reason=open-fight` | 主动侧移路线实际到达 | 与 `reason=world-obstacle` 的挡枪换位分开统计 |
 | `SIGHT_WATCH_ARMED / SIGHT_WATCH_ACTIVE` | 真实失视后取得短期资格，以及实际执行向旧位置转向 | 不能证明已看见或瞄准隐藏玩家；已武装不等于已取得控制 |
 | `REPEEK_RECOGNIZED` | 再次真实看见同一玩家，且新位置靠近旧目击点 | 只缩短新增准备等待，仍需查射击许可和原生结果 |
 | `ESCAPE_REQUESTED / ESCAPE_ARRIVED` | 卧姿受阻后的有限短距撤离申请及实际到达 | `queued=False` 或只有查询成功均不代表实际位移 |

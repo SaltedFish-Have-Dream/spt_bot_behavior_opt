@@ -82,7 +82,10 @@ internal static partial class Program
             SightWatchWindow(); // 检查失视守点只使用最后真实视觉快照。
             RepeekBoundaries(); // 检查同区域再次探头的身份、距离和时效。
             WatchDecisionAndReaction(); // 检查危险优先级与等级反应边界。
-            Console.WriteLine($"PASS: 68 scenarios, {_assertions} assertions."); // 输出实际验证数量。
+            FootworkStableEngagement(); // 检查近距交战稳定后只提出一次候选。
+            FootworkDistanceAndSightBounds(); // 检查近远距离和短暂失视边界。
+            FootworkOtherRepositionAndLifecycle(); // 检查挡枪换位去重与目标清理。
+            Console.WriteLine($"PASS: 71 scenarios, {_assertions} assertions."); // 输出实际验证数量。
             return 0;
         }
         catch (Exception exception) // 明确报告失败而不是继续生成包。

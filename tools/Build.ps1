@@ -60,9 +60,10 @@ try {
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.5-tactical-response.md') -Destination (Join-Path $packageStage 'tactical-response.md') # 附带本版自主实现的行为反馈与限频诊断。
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.6-adaptive-navigation.md') -Destination (Join-Path $packageStage 'adaptive-navigation.md') # 附带新导航反馈和复测步骤。
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.7-repeek-awareness.md') -Destination (Join-Path $packageStage 'repeek-awareness.md') # 附带失视守点与再识别的实测边界。
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\v0.1.8-combat-footwork.md') -Destination (Join-Path $packageStage 'combat-footwork.md') # 附带主动侧移规则、SAIN 对照与实测检查。
         $distributionRoot = Join-Path $projectRoot 'dist' # 发布文件保存在 Git 忽略目录。
         New-Item -ItemType Directory -Path $distributionRoot -Force | Out-Null # 不修改游戏安装。
-        $packageArchive = Join-Path $distributionRoot 'AiBehaviorOpt-0.1.7.zip' # 固定版本产物便于安装。
+        $packageArchive = Join-Path $distributionRoot 'AiBehaviorOpt-0.1.8.zip' # 固定版本产物便于安装。
         Compress-Archive -Path (Join-Path $packageStage '*') -DestinationPath $packageArchive -Force # 只压缩本次新建的暂存目录。
         Get-FileHash -LiteralPath $packageArchive -Algorithm SHA256 # 输出校验值供交付追溯。
     }

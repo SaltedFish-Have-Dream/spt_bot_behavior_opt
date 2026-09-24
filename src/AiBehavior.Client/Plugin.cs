@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace AiBehavior.Client;
 
-[BepInPlugin(Id, "AI Behavior Opt", "0.1.7")]
+[BepInPlugin(Id, "AI Behavior Opt", "0.1.8")]
 [BepInDependency("xyz.drakia.bigbrain", "1.5.0")]
 [BepInDependency("xyz.drakia.waypoints", "1.9.0")]
 [BepInIncompatibility("me.sol.sain")]
@@ -29,7 +29,7 @@ public sealed class Plugin : BaseUnityPlugin
         try // 初始化失败时保留原生游戏能力。
         {
             var options = new PluginOptions(Config); // 配置仅在启动阶段读取。
-            Logger.LogInfo($"[ABO] event=START version=0.1.7 build={typeof(Plugin).Module.ModuleVersionId:N} utc={DateTime.UtcNow:O} enabled={options.Enabled}"); // 二进制标识用于确认实际加载的是本次日志版本。
+            Logger.LogInfo($"[ABO] event=START version=0.1.8 build={typeof(Plugin).Module.ModuleVersionId:N} utc={DateTime.UtcNow:O} enabled={options.Enabled}"); // 二进制标识用于确认实际加载的是本次日志版本。
             if (!options.Enabled) { Logger.LogInfo("AI Behavior Opt 已关闭。"); return; } // 显式关闭时不注册任何运行逻辑。
             if (Chainloader.PluginInfos.ContainsKey("me.sol.sain") || Chainloader.PluginInfos.ContainsKey("com.chazut.orbit")) // 双重检查避免重复接管。
                 throw new InvalidOperationException("请在独立测试配置中停用 SAIN 和 ORBIT 后再启用本模组。");
@@ -44,6 +44,7 @@ public sealed class Plugin : BaseUnityPlugin
             Runtime.Diagnostics.Write("TACTICAL_RULES", 0, Time.time, $"coverFailureMemory={options.CoverFailureMemory} suppressionResponse={options.SuppressionResponse} searchObservation={options.SearchObservation} coverCommitment={options.CoverCommitment} failedCoverCapacity=4 failedCoverSeconds=12 pressureWindowSeconds=0.25 searchPauseLimit=2"); // 启动时记录四个独立开关及有界策略，方便实测逐项对照。
             Runtime.Diagnostics.Write("NAVIGATION_RULES", 0, Time.time, "dependency=Waypoints version=1.9.0 completePathsOnly=True escapeMeters=5 repositionMeters=3 searchFailureSeconds=15"); // Waypoints 提供地图导航网格，行为路径仍需本模组完整验证。
             Runtime.Diagnostics.Write("VISION_RULES", 0, Time.time, "source=personal-confirmed-vision watchSeconds=1.25 repeekSeconds=8 sameAreaMeters=6 readinessFactor=0.8"); // 再次探头只缩短新增准备等待，不修改原生视觉能力。
+            Runtime.Diagnostics.Write("COMBAT_RULES", 0, Time.time, $"footwork={options.CombatFootwork} source=personal-confirmed-vision distanceMeters=6-25 settleSeconds=1.5 stepMeters=3 maxPerEncounter=1 sightResetSeconds=6"); // 新增交战行为与原有枪线验证分开记录。
             Runtime.Diagnostics.Write("CONFIG", 0, Time.time, FormattableString.Invariant($"eft={version} spt={sptVersion} bigBrain={brainVersion} scavs={options.ManageScavs} levels={options.MinimumLevel}-{options.MaximumLevel} softBudgetMs={options.MainThreadMilliseconds:F2} rays={options.RayRate} paths={options.PathRate} samples={options.SampleRate} overlaps={options.OverlapRate} summarySeconds={options.SummarySeconds} eventLogging={options.EventLogging} eventRate={options.EventLogsPerSecond} traceBots={options.TraceBots}")); // 只输出与本次行为诊断相关的配置。
             _harmony = new Harmony(Id); // 使用独立补丁标识，便于清理。
             _harmony.PatchAll(typeof(Plugin).Assembly); // 编译期类型与运行期签名共同验证补丁目标。
@@ -59,7 +60,7 @@ public sealed class Plugin : BaseUnityPlugin
             var brains = new List<string> { "PmcBear", "PmcUsec", "PMC", "Assault", "Marksman" }; // 仅使用本地程序集核对过的 Brain。
             int layerId = BrainManager.AddCustomLayer(typeof(BehaviorLayer), brains, 71, roles); // 高于普通战斗和请求层，低于 78/80 的故障与避险层。
             Runtime.Diagnostics.Write("READY", 0, Time.time, $"patchedMethods={patchedMethods} expectedMethods={(limitCompatibility ? 12 : 11)} layerId={layerId} priority=71"); // 可选限流排序补丁单独计数，初始化不能替代行为验收。
-            Logger.LogInfo("AI Behavior Opt 0.1.7 已初始化：SPT 4.1.5 / EFT 40743 / BigBrain 1.5.0 / Waypoints 1.9.0。尚需战局验证。");
+            Logger.LogInfo("AI Behavior Opt 0.1.8 已初始化：SPT 4.1.5 / EFT 40743 / BigBrain 1.5.0 / Waypoints 1.9.0。尚需战局验证。");
         }
         catch (Exception exception) // 防止半初始化状态留下持续覆盖。
         {

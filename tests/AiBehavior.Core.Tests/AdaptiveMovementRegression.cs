@@ -42,6 +42,10 @@ internal static partial class Program
         Check(AdaptiveMovement.TrySideStep(Vector3.Zero, new Vector3(0, 0, 10), 0, out Vector3 left) &&
             AdaptiveMovement.TrySideStep(Vector3.Zero, new Vector3(0, 0, 10), 1, out Vector3 right) && left.X == -right.X, "side steps oppose"); // 两个候选分处玩家线两侧。
         Check(!AdaptiveMovement.TrySideStep(Vector3.Zero, new Vector3(1, 0, 0), 0, out _), "point blank side step rejected"); // 贴脸时不横移穿越目标。
+        feedback.Clear(); // 独立验证主动侧移后的挡枪冷却。
+        feedback.CooldownAfterExternal("player", 70); // 主动路线已经排队，挡枪计数重新开始。
+        Check(!feedback.Observe("player", true, 70.1, out _) && !feedback.Observe("player", true, 70.2, out _) && !feedback.Observe("player", true, 70.3, out _), "external movement blocks immediate repeat"); // 三次新阻挡也不能立即再次换位。
+        Check(!feedback.Observe("player", true, 78.1, out _) && !feedback.Observe("player", true, 78.2, out _) && feedback.Observe("player", true, 78.3, out int delayed) && delayed == 0, "blocked fire may recover after external cooldown"); // 冷却后仍可处理真正持续的障碍。
     }
 
     /// <summary>短期失败区只能压制相同近邻，过期和环形替换后允许重新尝试。</summary>

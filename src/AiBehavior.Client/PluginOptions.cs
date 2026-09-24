@@ -11,6 +11,7 @@ public sealed class PluginOptions
     public readonly bool SuppressionResponse;
     public readonly bool SearchObservation;
     public readonly bool CoverCommitment;
+    public readonly bool CombatFootwork;
     public readonly int MinimumLevel;
     public readonly int MaximumLevel;
     public readonly double MainThreadMilliseconds;
@@ -32,6 +33,7 @@ public sealed class PluginOptions
         SuppressionResponse = config.Bind("Tactics", "SuppressionResponse", true, "玩家命中与近弹形成衰减压力；到达掩体、压力回落且满足视线和武器条件时可还击。关闭则保留旧版五秒内避险停火。重启生效。").Value;
         SearchObservation = config.Bind("Tactics", "SearchObservation", true, "沿已验证路线进入线索十八米路径范围时短暂停看，每区域最多两次，不延长线索。重启生效。").Value;
         CoverCommitment = config.Bind("Tactics", "CoverCommitment", true, "普通视线波动不打断已验证的掩体移动；危险、恢复、失效与原生抢占仍可中断。重启生效。").Value;
+        CombatFootwork = config.Bind("Tactics", "CombatFootwork", true, "本插件实际控制的普通 Scav 与 PMC 在六至二十五米开阔交战中，稳定目视后至多主动侧移一次；复用原导航预算。重启生效。").Value; // 可单独关闭新交战行为以便实测对照。
         MinimumLevel = config.Bind("PMC", "MinimumLevel", 1, new ConfigDescription("PMC 成长起点。", new AcceptableValueRange<int>(1, 999))).Value;
         MaximumLevel = config.Bind("PMC", "MaximumLevel", 60, new ConfigDescription("PMC 成长饱和点，并非游戏等级上限。", new AcceptableValueRange<int>(2, 1000))).Value;
         MainThreadMilliseconds = config.Bind("Performance", "DecisionBudgetMs", 0.5f, new ConfigDescription("每帧高层决策和查询的软时间片，不含原生运动与动画。", new AcceptableValueRange<float>(0.1f, 5f))).Value;

@@ -88,6 +88,16 @@ public sealed class BlockedShotFeedback
         _consecutive = 0;
     }
 
+    /// <summary>主动交战侧移成功排队后，挡枪换位至少等待八秒并重新累计真实阻挡。</summary>
+    public void CooldownAfterExternal(string? identity, double now)
+    {
+        if (string.IsNullOrEmpty(identity) || double.IsNaN(now) || double.IsInfinity(now) || now < 0) return; // 无效事件不能冻结合法换位。
+        if (_identity != identity) { _identity = identity; _attempts = 0; } // 新目标使用自己的挡枪额度。
+        _consecutive = 0; // 之前零星阻挡不能与移动后的枪线拼接。
+        _lastAt = now; // 后续连续阻挡从实际移动开始重算。
+        _nextAt = Math.Max(_nextAt, now + 8); // 不允许紧接着重复提交另一条侧移路线。
+    }
+
     /// <summary>玩家情境退出后清除目标及额度，下一次独立接敌重新开始。</summary>
     public void Clear()
     {

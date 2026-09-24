@@ -33,7 +33,9 @@ internal sealed class BotAgent : IDisposable
     private readonly BlockedShotFeedback _blockedShots = new();
     private readonly SearchFailureMemory _failedSearch = new();
     private readonly RecentSightAwareness _recentSight = new();
+    private readonly EngagementFootwork _footwork;
     private bool _watchLookIssued;
+    private bool _openFightReposition;
     private PressureLevel _reportedPressure;
     private double _nextSoundSnapshot;
     private double _nextGunshotSnapshot;
@@ -110,6 +112,7 @@ internal sealed class BotAgent : IDisposable
         if (level < 1) { level = runtime.Options.MinimumLevel; runtime.Log.LogWarning($"Bot {id} 等级无效，已回退到成长起点。"); }
         Skill = SkillProfile.Create(role, level, runtime.Options.MinimumLevel, runtime.Options.MaximumLevel);
         _random = new BotRandom(owner.ProfileId);
+        _footwork = new EngagementFootwork(id & 1); // 固定左右倾向，不随帧率或等级增加查询次数。
         Query = new BotQuery(this);
         NextDecision = Time.time + id % 10 * 0.01;
     }
@@ -316,6 +319,7 @@ internal sealed class BotAgent : IDisposable
         _pressure.Clear(); // 玩家情境退出后不继续保留受压行为。
         _blockedShots.Clear(); // 下次独立接敌可以重新判断枪线。
         _recentSight.Clear(); // 旧玩家视觉不能带入新情境。
+        _footwork.Clear(); // 交还原生后不保留主动侧移名额和目标。
         _watchLookIssued = false; // 新情境的守点必须重新确认视觉边沿。
         _reportedPressure = PressureLevel.Calm; // 新玩家情境的第一次高压应重新形成日志边沿。
     }
@@ -335,6 +339,7 @@ internal sealed class BotAgent : IDisposable
                 Participating = false; // 停用 Bot 不参与增强调度。
                 _searchIdentity = null; // 恢复后重新验证搜索起点。
                 _recentSight.Clear(); // 停用期间不能保留短时再次探头优势。
+                _footwork.Clear(); // 恢复活动后等待新的真人视觉。
                 _watchLookIssued = false; // 恢复后重新等待真实视觉。
                 _policy.Reset(); // 清除停用前的动作承诺。
                 if (State != BehaviorState.Native) Runtime.StateChanges++; // 停用迁移也保留总量。
@@ -355,7 +360,7 @@ internal sealed class BotAgent : IDisposable
         bool playerClue = Memory.TryGetLatest(now, out _) || _lastGunshot.ExpiresAt > now || _playerDanger.CanAdvance(now); // 独立保留枪声原寿命，仍不访问隐藏坐标。
         if (!PlayerThreatPolicy.ShouldManage(active, playerAlive, enemy != null && !playerTarget, playerTarget, playerClue, _playerDanger.IsActive(now))) // AI 互战只有玩家紧急危险可短时打断。
         {
-            if (!playerAlive && (playerClue || _playerDanger.SearchUntil > 0)) { Memory.Clear(); _lastGunshot = default; _playerDanger.Clear(); _failedCovers.Clear(); _failedSearch.Clear(); _blockedShots.Clear(); _recentSight.Clear(); _searchPacing.Clear(); } // 玩家失效时一并清理事件值缓存。
+            if (!playerAlive && (playerClue || _playerDanger.SearchUntil > 0)) { Memory.Clear(); _lastGunshot = default; _playerDanger.Clear(); _failedCovers.Clear(); _failedSearch.Clear(); _blockedShots.Clear(); _recentSight.Clear(); _footwork.Clear(); _searchPacing.Clear(); } // 玩家失效时一并清理事件值缓存。
             LeavePlayerContext(now); // 不清除原生 AI 目标、不阻止原生瞄准或射击。
             return; // 不读取医疗、健康、不更新决策、不搜索掩体。
         }
@@ -394,6 +399,7 @@ internal sealed class BotAgent : IDisposable
         }
         _visible = visible; // 记录本帧的个人视觉状态。
         if (visible && enemy != null) _recentSight.ObserveVisible(enemy.ProfileId, sight.Position, now); // 只用本帧核实的视觉快照刷新已知位置。
+        if (Runtime.Options.CombatFootwork && visible && enemy != null) _footwork.ObserveVisible(enemy.ProfileId, now); // 关闭功能时不进入新的视觉热点。
         bool ready = Owner.WeaponManager.IsWeaponReady && Owner.WeaponManager.HaveBullets && !Owner.WeaponManager.Reload.Reloading; // 原生武器条件不被能力曲线覆盖。
         Gate.Update(enemy?.ProfileId, visible, ready, now); // 并行推进察觉和稳定计时。
         if (visible) _aimPoint = GameAdapter.Position(sight.AimPosition); // 两次原生视觉检查之间不追踪实时身体坐标。
@@ -466,6 +472,7 @@ internal sealed class BotAgent : IDisposable
         };
         BehaviorState next = _policy.Decide(input, Skill, now, _decisionRoll); // 状态候选数与等级无关。
         ChangeState(next, now); // 决策与调查结束复用同一任务失效路径。
+        if (Runtime.Options.CombatFootwork && State == BehaviorState.Engage && _visible && TryVisibleObservation(Owner.Memory.GoalEnemy, now, out Observation combatSight)) TryCombatFootwork(now, combatSight); // 已稳定交战时先考虑一次有界侧移，避免下一轮普通掩体重试永久占队列。
         if (Controlled && _hasClue && Role != BotRole.Marksman && !_hasCover && !_pending && now >= _retryAt && (!_coverUnavailable || !underFire) && (_visible || _needsRecovery || underFire))
             Request(QueryKind.Cover, Owner.Position, now); // 只在有实际需求时查找局部掩体。
         NextDecision = now + (_visible ? 0.2 : _hasClue ? 0.5 : 2); // 所有等级共用 5/2/0.5 Hz。
@@ -594,7 +601,7 @@ internal sealed class BotAgent : IDisposable
                 if (_moving && _pendingKind == QueryKind.Reposition && (Owner.Position - _destination).sqrMagnitude <= 1.44f && Owner.Mover.DistDestination <= 1.2f) // 换位必须走完短路线才能视为到达。
                 {
                     StopMotion(); // 结束本模组的换位路线，后续仍走正常瞄准验证。
-                    if (Trace(DiagnosticEvent.RepositionArrived, now)) WriteTrace("REPOSITION_ARRIVED", now, "reason=world-obstacle"); // 区分申请换位与实际到达。
+                    if (Trace(DiagnosticEvent.RepositionArrived, now)) WriteTrace("REPOSITION_ARRIVED", now, _openFightReposition ? "reason=open-fight" : "reason=world-obstacle"); // 区分主动侧移和挡枪换位的实际到达。
                 }
                 else if (!_moving || _pendingKind != QueryKind.Reposition) StopMotion(); // 普通射击窗口继续保持静止。
                 AimAndFire(now); // 武器动画保持原生逐帧更新。
@@ -653,6 +660,22 @@ internal sealed class BotAgent : IDisposable
         {
             _nextShotAttempt = now + 0.05; // 失败验证最多每秒二十次尝试，不每帧消耗射线。
             Owner.ShootData.Shoot(); // Harmony 射击入口统一做最终预算内验证。
+        }
+        TryCombatFootwork(now, sight); // 决策帧之间仍可在武器完成验证后抓住交战换位机会。
+    }
+
+    /// <summary>在交战状态中只对真实可见的本机玩家提出一次预算内短距侧移。</summary>
+    private void TryCombatFootwork(double now, in Observation sight)
+    {
+        bool canFootwork = Runtime.Options.CombatFootwork && Controlled && LayerSelected && State == BehaviorState.Engage && Role != BotRole.Marksman && !_hasCover && !_moving && !_pending && !_shotPending && !_recoveryRunning && !_playerDanger.IsActive(now) && now >= _retryAt; // 有掩体、避险和恢复动作优先，不为侧移抢占它们。
+        if (!canFootwork || !_footwork.TryPlan(true, GameAdapter.Snapshot(Owner.Position), sight.Position, now, out System.Numerics.Vector3 footworkPoint)) return; // 只用本次真实视觉快照提出三米候选。
+        Request(QueryKind.Reposition, GameAdapter.Position(footworkPoint), now); // Waypoints 网格和现有分帧额度验证完整短路线。
+        if (_pending) // 队列拒绝时保留机会，仍受原有半秒重试冷却。
+        {
+            _openFightReposition = true; // 实际到达日志区分主动交战侧移。
+            _footwork.MarkRequested(); // 本次交战只发起一次主动侧移。
+            _blockedShots.CooldownAfterExternal(sight.Identity, now); // 挡枪反馈八秒内不能紧接着生成第二条侧移路线。
+            if (Trace(DiagnosticEvent.CombatFootworkRequested, now)) WriteTrace("COMBAT_FOOTWORK_REQUESTED", now, "source=current-personal-vision distanceBand=6-25m stepMeters=3"); // 排队不等于已移动或路线可达。
         }
     }
 
@@ -715,6 +738,7 @@ internal sealed class BotAgent : IDisposable
             if (_blockedShots.Observe(enemy.ProfileId, canReposition, now, out int attempt) && AdaptiveMovement.TrySideStep(GameAdapter.Snapshot(Owner.Position), GameAdapter.Snapshot(target), attempt, out System.Numerics.Vector3 candidate)) // 三次连续真实挡枪才花一次共享导航额度。
             {
                 Request(QueryKind.Reposition, GameAdapter.Position(candidate), now); // 路径仍由原有完整路径和距离上限检查。
+                if (_pending) { _openFightReposition = false; _footwork.MarkOtherReposition(); } // 成功排队的挡枪换位占用本交战的主动侧移名额。
                 if (Trace(DiagnosticEvent.RepositionRequested, now)) WriteTrace("REPOSITION_REQUESTED", now, $"side={attempt} queued={_pending}"); // 排队不等于路线成功。
             }
             return true;
@@ -1103,6 +1127,7 @@ internal sealed class BotAgent : IDisposable
         _failedSearch.Clear(); // 场景对象销毁时不保留旧搜索位置。
         _blockedShots.Clear(); // 不跨 Bot 生命周期复用目标与额度。
         _recentSight.Clear(); // 销毁时清空最后目击位置与短期资格。
+        _footwork.Clear(); // 销毁时清空侧移窗口与目标身份。
         try { Release(reason: "dispose"); } // 尽量恢复原生动作参数。
         catch (Exception exception) { Runtime.Log.LogWarning($"Bot {Id} 清理时对象已失效：{exception.Message}"); } // 销毁过程仅记录一次。
         finally { Disposed = true; } // Release 已在游戏对象访问之前撤销队列，重复扫描没有必要。
